@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.env
+
+# Node
+node_modules/
+
+# Build / cache
+dist/
+.parcel-cache/
+.cache/
+
+# Large/binary assets (kept local)
+*.gltf
+*.glb
+*.stl
+*.stp
+*.step
+*.obj
+*.mtl
+
+# OS/editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/

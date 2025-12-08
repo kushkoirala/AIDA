@@ -1,0 +1,5 @@
+numpy
+scipy
+gymnasium
+stable-baselines3
+websockets

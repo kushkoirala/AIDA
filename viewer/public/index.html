@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Udaan Viewer</title>
+  <style>
+    body, html { margin: 0; padding: 0; overflow: hidden; background: #0d1117; color: #e6edf3; font-family: sans-serif; }
+    #hud { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.5); padding: 10px 12px; border-radius: 8px; }
+    a { color: #8ab4f8; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div>GLTF: Udaan-Product4.gltf</div>
+    <div>Telemetry WS: <code>ws://localhost:8765</code></div>
+    <div id="status">Status: waiting for telemetry…</div>
+  </div>
+  <canvas id="c"></canvas>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.161.0/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.161.0/examples/jsm/controls/OrbitControls.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.161.0/examples/jsm/loaders/GLTFLoader.js';
+
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0d1117);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(4, 3, 6);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 0, 0);
+
+    const light = new THREE.DirectionalLight(0xffffff, 1.2);
+    light.position.set(5, 10, 7);
+    scene.add(light);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+    const loader = new GLTFLoader();
+    let model = null;
+
+    loader.load('Udaan-Product4.gltf', (gltf) => {
+      model = gltf.scene;
+      // Apply a small rotation so the initial view is nicer.
+      model.rotation.x = Math.PI / 2; // swap Z-down into Three's Y-up baseline
+      scene.add(model);
+      document.getElementById('status').textContent = 'Status: glTF loaded; waiting for telemetry…';
+    }, undefined, (err) => {
+      document.getElementById('status').textContent = 'Status: glTF load error';
+      console.error(err);
+    });
+
+    const wsUrl = 'ws://localhost:8765';
+    let ws;
+
+    function connectWs() {
+      ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        document.getElementById('status').textContent = 'Status: telemetry connected';
+      };
+      ws.onclose = () => {
+        document.getElementById('status').textContent = 'Status: telemetry disconnected; retrying…';
+        setTimeout(connectWs, 1500);
+      };
+      ws.onmessage = (event) => {
+        if (!model) return;
+        try {
+          const data = JSON.parse(event.data);
+          const [x, y, z] = data.position || [0, 0, 0];
+          const [w, qx, qy, qz] = data.quaternion || [1, 0, 0, 0];
+          // Convert Z-down to Three's Y-up: flip Z axis and rotate +90 deg about X.
+          model.position.set(x, y, -z);
+          const qSim = new THREE.Quaternion(qx, qy, qz, w);
+          const qFix = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+          model.quaternion.copy(qFix.multiply(qSim));
+        } catch (e) {
+          console.warn('Bad telemetry payload', e);
+        }
+      };
+    }
+
+    connectWs();
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    window.addEventListener('resize', onWindowResize);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
