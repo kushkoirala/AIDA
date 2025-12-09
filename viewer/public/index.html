@@ -6,16 +6,67 @@
   <title>Udaan Viewer</title>
   <link rel="icon" href="data:image/x-icon;," />
   <style>
-    body, html { margin: 0; padding: 0; overflow: hidden; background: #0d1117; color: #e6edf3; font-family: sans-serif; }
-    #hud { position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.5); padding: 10px 12px; border-radius: 8px; }
+    :root {
+      --bg: #0b1021;
+      --panel: rgba(0, 0, 0, 0.55);
+      --text: #e6edf3;
+      --muted: #9da5b4;
+      --accent: #7dd3fc;
+      --danger: #f87171;
+      --warn: #fbbf24;
+      --ok: #34d399;
+    }
+    body, html { margin: 0; padding: 0; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Segoe UI", "SF Pro Display", system-ui, sans-serif; }
+    #hud { position: absolute; top: 12px; left: 12px; background: var(--panel); padding: 12px 14px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); min-width: 280px; }
+    #hud .line { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+    #hud .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
+    #hud .controls { display: flex; gap: 8px; margin: 8px 0 10px; }
+    #hud button { background: #1f2a3d; color: var(--text); border: 1px solid #28364c; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
+    #hud button:hover { background: #26344a; }
+    #hud button:active { background: #1d293c; }
+    #hud code { background: rgba(255,255,255,0.06); padding: 2px 4px; border-radius: 4px; }
+    #status { font-size: 13px; margin-bottom: 8px; }
+    #grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; font-size: 13px; }
+    .grid-label { color: var(--muted); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px rgba(0,0,0,0.35); }
+    .disconnected { background: var(--danger); }
+    .connected { background: var(--ok); }
+    .warn { background: var(--warn); }
+    .stale { background: var(--warn); }
+    .idle { background: var(--muted); }
     a { color: #8ab4f8; }
   </style>
 </head>
 <body>
   <div id="hud">
-    <div>GLTF: Udaan-Product4.gltf</div>
-    <div>Telemetry WS: <code>ws://localhost:8765</code></div>
+    <div class="line">
+      <span class="label">Telemetry</span>
+      <code id="ws-url">ws://localhost:8765</code>
+      <span id="conn-dot" class="dot disconnected" title="WebSocket status"></span>
+    </div>
+    <div class="line">
+      <span class="label">Heartbeat</span>
+      <span id="heartbeat">—</span>
+      <span id="hb-age" style="color: var(--muted);">age —</span>
+      <span id="hb-dot" class="dot idle" title="Heartbeat freshness"></span>
+    </div>
+    <div class="controls">
+      <button id="pauseBtn">Pause</button>
+      <button id="resetBtn">Reset View</button>
+    </div>
     <div id="status">Status: waiting for telemetry…</div>
+    <div id="grid">
+      <div class="grid-label">Position (m)</div><div id="pos">—</div>
+      <div class="grid-label">Velocity (m/s)</div><div id="vel">—</div>
+      <div class="grid-label">Rates (rad/s)</div><div id="rates">—</div>
+      <div class="grid-label">Quaternion (w,x,y,z)</div><div id="quat">—</div>
+      <div class="grid-label">Surfaces</div><div id="surfaces">—</div>
+      <div class="grid-label">Throttle</div><div id="throttle">—</div>
+      <div class="grid-label">SOC / V</div><div id="battery">—</div>
+      <div class="grid-label">Load factor</div><div id="load">—</div>
+      <div class="grid-label">Mode</div><div id="mode">—</div>
+      <div class="grid-label">Sim time (s)</div><div id="simtime">—</div>
+    </div>
   </div>
   <canvas id="c"></canvas>
 
@@ -43,15 +94,44 @@
 
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.set(4, 3, 6);
+    const initialCamera = camera.position.clone();
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.target.set(0, 0, 0);
+    const initialTarget = controls.target.clone();
 
     const light = new THREE.DirectionalLight(0xffffff, 1.2);
     light.position.set(5, 10, 7);
     scene.add(light);
     scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+    const wsUrl = 'ws://localhost:8765';
+    let ws;
+    let isPaused = false;
+    let lastHeartbeatTime = null;
+    let heartbeatValue = null;
+    const statusEl = document.getElementById('status');
+    const wsUrlEl = document.getElementById('ws-url');
+    const hbEl = document.getElementById('heartbeat');
+    const hbAgeEl = document.getElementById('hb-age');
+    const hbDot = document.getElementById('hb-dot');
+    const connDot = document.getElementById('conn-dot');
+    const posEl = document.getElementById('pos');
+    const velEl = document.getElementById('vel');
+    const ratesEl = document.getElementById('rates');
+    const quatEl = document.getElementById('quat');
+    const surfEl = document.getElementById('surfaces');
+    const throttleEl = document.getElementById('throttle');
+    const batteryEl = document.getElementById('battery');
+    const loadEl = document.getElementById('load');
+    const modeEl = document.getElementById('mode');
+    const simTimeEl = document.getElementById('simtime');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    wsUrlEl.textContent = wsUrl;
+    wsUrlEl.title = 'Telemetry endpoint';
 
     const loader = new GLTFLoader();
     let model = null;
@@ -61,35 +141,72 @@
       // Apply a small rotation so the initial view is nicer.
       model.rotation.x = Math.PI / 2; // swap Z-down into Three's Y-up baseline
       scene.add(model);
-      document.getElementById('status').textContent = 'Status: glTF loaded; waiting for telemetry…';
+      statusEl.textContent = 'Status: glTF loaded; waiting for telemetry…';
     }, undefined, (err) => {
-      document.getElementById('status').textContent = 'Status: glTF load error';
+      statusEl.textContent = 'Status: glTF load error';
       console.error(err);
     });
 
-    const wsUrl = 'ws://localhost:8765';
-    let ws;
+    function setConn(status) {
+      connDot.className = 'dot ' + status;
+    }
+
+    function setHeartbeatStatus(status) {
+      hbDot.className = 'dot ' + status;
+    }
+
+    function formatVec(v, digits = 2) {
+      if (!Array.isArray(v)) return '—';
+      return v.map((x) => (typeof x === 'number' ? x.toFixed(digits) : '—')).join(', ');
+    }
+
+    function updateHud(data) {
+      if (data.position) posEl.textContent = formatVec(data.position);
+      if (data.velocity) velEl.textContent = formatVec(data.velocity);
+      if (data.rates) ratesEl.textContent = formatVec(data.rates);
+      if (data.quaternion) quatEl.textContent = formatVec(data.quaternion, 3);
+      if (data.surfaces) surfEl.textContent = formatVec(data.surfaces, 2);
+      if (typeof data.throttle === 'number') throttleEl.textContent = (data.throttle * 100).toFixed(1) + '%';
+      if (typeof data.soc === 'number' && typeof data.voltage === 'number') {
+        batteryEl.textContent = `${(data.soc * 100).toFixed(1)}% / ${data.voltage.toFixed(2)} V`;
+      }
+      if (typeof data.load_factor === 'number') loadEl.textContent = data.load_factor.toFixed(2) + ' g';
+      if (data.mode) modeEl.textContent = data.mode;
+      if (typeof data.sim_time === 'number') simTimeEl.textContent = data.sim_time.toFixed(2);
+    }
 
     function connectWs() {
       ws = new WebSocket(wsUrl);
       ws.onopen = () => {
-        document.getElementById('status').textContent = 'Status: telemetry connected';
+        statusEl.textContent = 'Status: telemetry connected';
+        setConn('connected');
       };
       ws.onclose = () => {
-        document.getElementById('status').textContent = 'Status: telemetry disconnected; retrying…';
+        statusEl.textContent = 'Status: telemetry disconnected; retrying…';
+        setConn('disconnected');
         setTimeout(connectWs, 1500);
       };
       ws.onmessage = (event) => {
-        if (!model) return;
         try {
           const data = JSON.parse(event.data);
           const [x, y, z] = data.position || [0, 0, 0];
           const [w, qx, qy, qz] = data.quaternion || [1, 0, 0, 0];
-          // Convert Z-down to Three's Y-up: flip Z axis and rotate +90 deg about X.
-          model.position.set(x, y, -z);
-          const qSim = new THREE.Quaternion(qx, qy, qz, w);
-          const qFix = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
-          model.quaternion.copy(qFix.multiply(qSim));
+
+          // Update HUD regardless of pause to keep numbers fresh.
+          updateHud(data);
+          heartbeatValue = typeof data.heartbeat === 'number' ? data.heartbeat : heartbeatValue;
+          lastHeartbeatTime = performance.now();
+          hbEl.textContent = heartbeatValue ?? '—';
+          hbAgeEl.textContent = 'age 0 ms';
+          setHeartbeatStatus('connected');
+
+          if (!isPaused && model) {
+            // Convert Z-down to Three's Y-up: flip Z axis and rotate +90 deg about X.
+            model.position.set(x, y, -z);
+            const qSim = new THREE.Quaternion(qx, qy, qz, w);
+            const qFix = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+            model.quaternion.copy(qFix.multiply(qSim));
+          }
         } catch (e) {
           console.warn('Bad telemetry payload', e);
         }
@@ -104,6 +221,36 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
     window.addEventListener('resize', onWindowResize);
+
+    pauseBtn.addEventListener('click', () => {
+      isPaused = !isPaused;
+      pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+      statusEl.textContent = isPaused ? 'Status: paused (pose held)' : 'Status: telemetry connected';
+    });
+
+    resetBtn.addEventListener('click', () => {
+      camera.position.copy(initialCamera);
+      controls.target.copy(initialTarget);
+      controls.update();
+      if (model) {
+        model.position.set(0, 0, 0);
+        model.rotation.set(Math.PI / 2, 0, 0);
+      }
+    });
+
+    // Heartbeat freshness indicator.
+    setInterval(() => {
+      if (lastHeartbeatTime === null) return;
+      const ageMs = performance.now() - lastHeartbeatTime;
+      hbAgeEl.textContent = `age ${ageMs.toFixed(0)} ms`;
+      if (ageMs > 1500) {
+        setHeartbeatStatus('stale');
+      } else if (ageMs > 400) {
+        setHeartbeatStatus('warn');
+      } else {
+        setHeartbeatStatus('connected');
+      }
+    }, 200);
 
     function animate() {
       requestAnimationFrame(animate);
