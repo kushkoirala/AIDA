@@ -1,6 +1,6 @@
 import numpy as np
 
-MAX_G = 4.0
+MAX_G = 9.0  # Allow higher G for aerobatic UAV
 MAX_CURRENT_A = 40.0
 
 
