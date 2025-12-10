@@ -9,7 +9,7 @@ import websockets
 # Minimal telemetry broadcaster over WebSocket. Adds heartbeat and sim_time if missing.
 async def telemetry_server(
     state_fn: Callable[[], dict],
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8765,
     interval: float = 0.02,
     on_client_connect: Callable[[], None] | None = None,
@@ -100,7 +100,7 @@ async def _spin_demo_state(interval: float = 0.02):
         await asyncio.sleep(interval)
 
 
-async def run_spin_demo(host: str = "0.0.0.0", port: int = 8765, interval: float = 0.02):
+async def run_spin_demo(host: str = "127.0.0.1", port: int = 8765, interval: float = 0.02):
     """Run a self-contained demo telemetry loop for the viewer."""
     async def handler(websocket):
         t = 0.0
@@ -136,7 +136,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Telemetry server for the viewer")
-    parser.add_argument("--host", default="0.0.0.0", help="Listen address")
+    parser.add_argument("--host", default="127.0.0.1", help="Listen address")
     parser.add_argument("--port", type=int, default=8765, help="Listen port")
     parser.add_argument("--mode", choices=["demo", "noop"], default="demo", help="Demo sends a spinning pose; noop uses example_state")
     parser.add_argument("--interval", type=float, default=0.02, help="Telemetry update period in seconds")

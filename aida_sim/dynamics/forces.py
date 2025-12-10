@@ -5,18 +5,18 @@ from dataclasses import dataclass
 @dataclass
 class AeroParams:
     """Compact set of aerodynamic derivatives."""
-    wing_area: float = 0.480      # m^2 (5.17 ft^2 from validated data)
-    wing_span: float = 1.372      # m (4.5 ft span)
-    mean_chord: float = 0.432     # m (~17 in MAC)
+    wing_area: float = 0.4803087      # m^2 (PropShox Table 1)
+    wing_span: float = 1.3716         # m (4.5 ft span)
+    mean_chord: float = 0.35018       # m (wing_area/span)
     alpha_limit: float = np.deg2rad(25.0)
     CL_max: float = 1.006
 
     CL0: float = 0.278
-    CL_alpha: float = 3.82
+    CL_alpha: float = 0.058 * (180.0 / np.pi)
     CL_q: float = 6.5
     CL_de: float = 0.9
 
-    CD0: float = 0.0199
+    CD0: float = 0.019
     CD_alpha2: float = 0.30
     CD_q: float = 0.01
     CD_de: float = 0.02
@@ -27,19 +27,19 @@ class AeroParams:
     CY_dr: float = 0.17
 
     Cl_beta: float = -0.12
-    Cl_p: float = -0.81
-    Cl_r: float = 0.25
+    Cl_p: float = -1.25
+    Cl_r: float = 0.18
     Cl_da: float = 0.085
     Cl_dr: float = 0.01
 
-    Cm0: float = -0.05
+    Cm0: float = -0.096
     Cm_alpha: float = -0.38
     Cm_q: float = -9.0
     Cm_de: float = -1.13
 
     Cn_beta: float = 0.25
-    Cn_p: float = -0.02
-    Cn_r: float = -0.093
+    Cn_p: float = -0.05
+    Cn_r: float = -0.18
     Cn_da: float = 0.01
     Cn_dr: float = -0.18
 
@@ -134,8 +134,8 @@ def aero_forces_moments(
     return forces, moments
 
 
-ELECTRICAL_MAX_POWER_W = 400.0  # Total electrical power budget for both motors
-PROP_EFFICIENCY = 0.54          # Electrical-to-air power
+ELECTRICAL_MAX_POWER_W = 630.0  # 315 W per motor from PropShox Sec. 3.2
+PROP_EFFICIENCY = 0.50          # Average prop efficiency reported
 PROP_DIAMETER_M = 0.2286   # 9 in prop
 PROP_AREA = np.pi * (PROP_DIAMETER_M * 0.5) ** 2
 NUM_PROPS = 2

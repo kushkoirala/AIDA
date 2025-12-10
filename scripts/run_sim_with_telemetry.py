@@ -131,7 +131,7 @@ async def main():
     parser.add_argument("--checkpoint", type=str, default=None, help="Path to PPO checkpoint (.pt)")
     parser.add_argument("--task", type=str, default="takeoff", choices=["takeoff", "cruise"], help="FlightEnvRL task")
     parser.add_argument("--device", type=str, default="cpu", help="Torch device for policy evaluation")
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Telemetry server host")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="Telemetry server host")
     parser.add_argument("--port", type=int, default=8765, help="Telemetry server port")
     parser.add_argument("--interval", type=float, default=0.02, help="Telemetry publish period")
     parser.add_argument("--wait-for-client", action="store_true", help="Hold physics until a websocket client connects")

@@ -39,6 +39,7 @@
   .slider-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
   .slider-status { font-size: 12px; color: var(--text); }
   a { color: #8ab4f8; }
+  .alert { color: var(--warn); font-weight: 600; }
   </style>
 </head>
 <body>
@@ -72,6 +73,7 @@
       <div class="grid-label">Throttle</div><div id="throttle">—</div>
       <div class="grid-label">SOC / V</div><div id="battery">—</div>
       <div class="grid-label">Load factor</div><div id="load">—</div>
+      <div class="grid-label">Ceiling</div><div id="ceiling">—</div>
       <div class="grid-label">Mode</div><div id="mode">—</div>
       <div class="grid-label">Sim time (s)</div><div id="simtime">—</div>
     </div>
@@ -110,8 +112,11 @@
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
-    const SIM_TO_VIEWER_QUAT = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+    const SIM_TO_VIEWER_QUAT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
     const SIM_TO_VIEWER_INV = SIM_TO_VIEWER_QUAT.clone().invert();
+    const CEILING_FT = 500;
+    const CEILING_WARN_FT = 450;
+    const CEILING_M = CEILING_FT * 0.3048;
 
     // Load config and initialize scene
     let RUNWAY_START, CAMERA_OFFSET, camera, initialCamera, controls, initialTarget;
@@ -136,7 +141,8 @@
       const runwayGeometry = new THREE.PlaneGeometry(runwayLength, runwayWidth);
       const runwayMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
       const runway = new THREE.Mesh(runwayGeometry, runwayMaterial);
-      runway.position.set(0, RUNWAY_START.y, 0);
+      // shift by half the length so the runway starts at x=0 in sim coordinates
+      runway.position.set(runwayLength * 0.5, RUNWAY_START.y, 0);
       runway.rotation.x = -Math.PI / 2;
       scene.add(runway);
 
@@ -160,6 +166,14 @@
       ground.position.set(0, RUNWAY_START.y - 0.01, 0);
       ground.rotation.x = -Math.PI / 2;
       scene.add(ground);
+
+      // --- Add vertical ceiling plane ---
+      const ceilingGeometry = new THREE.PlaneGeometry(propertySize, propertySize);
+      const ceilingMaterial = new THREE.MeshBasicMaterial({ color: 0xf87171, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+      const ceilingPlane = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+      ceilingPlane.position.set(0, RUNWAY_START.y + CEILING_M, 0);
+      ceilingPlane.rotation.x = -Math.PI / 2;
+      scene.add(ceilingPlane);
 
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
@@ -197,6 +211,7 @@
       const throttleEl = document.getElementById('throttle');
       const batteryEl = document.getElementById('battery');
       const loadEl = document.getElementById('load');
+      const ceilingEl = document.getElementById('ceiling');
       const modeEl = document.getElementById('mode');
       const simTimeEl = document.getElementById('simtime');
       const pauseBtn = document.getElementById('pauseBtn');
@@ -310,14 +325,14 @@
       return converted;
     }
 
-    function updateHud(data) {
-      const units = data.units || 'imperial';
-      unitLabel.textContent = units === 'imperial' ? 'imperial (ft, ft/s, deg)' : units;
-      if (data.position) posEl.textContent = formatVec(data.position);
-      if (data.velocity) velEl.textContent = formatVec(data.velocity);
-      if (data.rates) ratesEl.textContent = formatVec(data.rates);
-      if (data.quaternion) quatEl.textContent = formatVec(data.quaternion, 3);
-      if (data.surfaces) surfEl.textContent = formatVec(data.surfaces, 2);
+      function updateHud(data) {
+        const units = data.units || 'imperial';
+        unitLabel.textContent = units === 'imperial' ? 'imperial (ft, ft/s, deg)' : units;
+        if (data.position) posEl.textContent = formatVec(data.position);
+        if (data.velocity) velEl.textContent = formatVec(data.velocity);
+        if (data.rates) ratesEl.textContent = formatVec(data.rates);
+        if (data.quaternion) quatEl.textContent = formatVec(data.quaternion, 3);
+        if (data.surfaces) surfEl.textContent = formatVec(data.surfaces, 2);
         if (manualThrottleActive) {
           throttleEl.textContent = (manualThrottleValue * 100).toFixed(1) + '% (manual)';
         } else if (typeof data.throttle === 'number') {
@@ -325,6 +340,17 @@
         }
         if (typeof data.soc === 'number' && typeof data.voltage === 'number') batteryEl.textContent = `${(data.soc * 100).toFixed(1)}% / ${data.voltage.toFixed(2)} V`;
         if (typeof data.load_factor === 'number') loadEl.textContent = data.load_factor.toFixed(2) + ' g';
+        if (ceilingEl && Array.isArray(data.position)) {
+          const altFt = data.position[2];
+          const clearance = CEILING_FT - altFt;
+          const warn = altFt >= CEILING_WARN_FT;
+          if (clearance >= 0) {
+            ceilingEl.textContent = `${CEILING_FT} ft (clr ${clearance.toFixed(1)} ft)`;
+          } else {
+            ceilingEl.textContent = `${CEILING_FT} ft (EXCEEDED by ${Math.abs(clearance).toFixed(1)} ft)`;
+          }
+          ceilingEl.classList.toggle('alert', warn);
+        }
         if (data.mode) modeEl.textContent = data.mode;
         if (typeof data.sim_time === 'number') simTimeEl.textContent = data.sim_time.toFixed(2);
       }

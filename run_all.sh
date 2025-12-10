@@ -6,8 +6,9 @@
 kill $(lsof -t -i:8080) 2>/dev/null || true
 kill $(lsof -t -i:8765) 2>/dev/null || true
 
-# Start HTTP server for viewer (background)
-python3 -m http.server 8080 --directory viewer/public &
+# Start HTTP server for viewer (background). Sandbox restricts 0.0.0.0 binds,
+# so bind explicitly to localhost.
+python3 -m http.server 8080 --bind 127.0.0.1 --directory viewer/public &
 HTTP_PID=$!
 echo "Viewer HTTP server started with PID $HTTP_PID on port 8080."
 
@@ -16,6 +17,7 @@ export PYTHONPATH=$(pwd)
 .venv/bin/python scripts/run_sim_with_telemetry.py \
   --checkpoint checkpoints/ppo_flight_final.pt \
   --task takeoff \
+  --host 127.0.0.1 \
   --wait-for-client \
   --reset-on-connect &
 TELEMETRY_PID=$!
