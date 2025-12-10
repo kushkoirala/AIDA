@@ -441,11 +441,13 @@ def main():
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu or cuda)")
     parser.add_argument("--eval-only", action="store_true", help="Only evaluate, don't train")
     parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint to load")
+    parser.add_argument("--task", type=str, default="cruise", choices=["cruise", "takeoff"],
+                        help="Training task type")
     args = parser.parse_args()
     
     # Create trainer
     trainer = PPOTrainer(
-        env_fn=lambda: FlightEnvRL(),
+        env_fn=lambda: FlightEnvRL(task=args.task),
         hidden_dim=256,
         lr=3e-4,
         n_steps=2048,

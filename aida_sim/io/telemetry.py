@@ -12,8 +12,14 @@ async def telemetry_server(
     host: str = "0.0.0.0",
     port: int = 8765,
     interval: float = 0.02,
+    on_client_connect: Callable[[], None] | None = None,
+    on_client_disconnect: Callable[[], None] | None = None,
 ):
     async def handler(websocket):
+        client = websocket.remote_address
+        print(f"[telemetry_server] Client connected: {client}")
+        if on_client_connect:
+            on_client_connect()
         heartbeat = 0
         start = time.monotonic()
         while True:
@@ -22,18 +28,38 @@ async def telemetry_server(
             payload.setdefault("heartbeat", heartbeat)
             payload.setdefault("sim_time", time.monotonic() - start)
             payload.setdefault("mode", "server")
-            await websocket.send(json.dumps(payload))
+            try:
+                await websocket.send(json.dumps(payload))
+            except websockets.ConnectionClosed:
+                print(f"[telemetry_server] Client disconnected: {client}")
+                if on_client_disconnect:
+                    on_client_disconnect()
+                break
             await asyncio.sleep(interval)
 
-    async with websockets.serve(handler, host, port):
-        await asyncio.Future()  # run forever
+    print(f"[telemetry_server] About to start websockets.serve on {host}:{port}")
+    try:
+        async with websockets.serve(handler, host, port):
+            print(f"[telemetry_server] websockets.serve started on {host}:{port}, running forever...")
+            await asyncio.Future()  # run forever
+    except Exception as e:
+        print(f"[telemetry_server] ERROR: {e}")
+        import traceback; traceback.print_exc()
 
 
 # Example state_fn for wiring later.
 def example_state():
+    # Taildragger is pitched ~6 deg nose-up in the sim frame (X fwd, Y right, Z down).
+    tail_pitch_rad = np.deg2rad(-6.0)  # negative => nose-up
+    tail_pitch_quat = [
+        float(np.cos(tail_pitch_rad / 2.0)),
+        0.0,
+        0.0,
+        float(np.sin(tail_pitch_rad / 2.0)),
+    ]
     return {
         "position": [0, 0, 0],
-        "quaternion": [1, 0, 0, 0],
+        "quaternion": tail_pitch_quat,
         "velocity": [0, 0, 0],
         "rates": [0, 0, 0],
         "surfaces": [0, 0, 0],

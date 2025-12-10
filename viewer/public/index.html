@@ -26,15 +26,19 @@
     #hud button:active { background: #1d293c; }
     #hud code { background: rgba(255,255,255,0.06); padding: 2px 4px; border-radius: 4px; }
     #status { font-size: 13px; margin-bottom: 8px; }
-    #grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; font-size: 13px; }
-    .grid-label { color: var(--muted); }
-    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px rgba(0,0,0,0.35); }
+  #grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; font-size: 13px; }
+  .grid-label { color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px rgba(0,0,0,0.35); }
     .disconnected { background: var(--danger); }
     .connected { background: var(--ok); }
-    .warn { background: var(--warn); }
-    .stale { background: var(--warn); }
-    .idle { background: var(--muted); }
-    a { color: #8ab4f8; }
+  .warn { background: var(--warn); }
+  .stale { background: var(--warn); }
+  .idle { background: var(--muted); }
+  .slider-block { margin-top: 10px; }
+  .slider-block input[type="range"] { width: 100%; }
+  .slider-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  .slider-status { font-size: 12px; color: var(--text); }
+  a { color: #8ab4f8; }
   </style>
 </head>
 <body>
@@ -50,22 +54,36 @@
       <span id="hb-age" style="color: var(--muted);">age —</span>
       <span id="hb-dot" class="dot idle" title="Heartbeat freshness"></span>
     </div>
+    <div class="line">
+      <span class="label">Units</span>
+      <span id="unitLabel">—</span>
+    </div>
     <div class="controls">
       <button id="pauseBtn">Pause</button>
       <button id="resetBtn">Reset View</button>
     </div>
     <div id="status">Status: waiting for telemetry…</div>
     <div id="grid">
-      <div class="grid-label">Position (m)</div><div id="pos">—</div>
-      <div class="grid-label">Velocity (m/s)</div><div id="vel">—</div>
-      <div class="grid-label">Rates (rad/s)</div><div id="rates">—</div>
+      <div class="grid-label">Position (ft)</div><div id="pos">—</div>
+      <div class="grid-label">Velocity (ft/s)</div><div id="vel">—</div>
+      <div class="grid-label">Rates (deg/s)</div><div id="rates">—</div>
       <div class="grid-label">Quaternion (w,x,y,z)</div><div id="quat">—</div>
-      <div class="grid-label">Surfaces</div><div id="surfaces">—</div>
+      <div class="grid-label">Surfaces (deg)</div><div id="surfaces">—</div>
       <div class="grid-label">Throttle</div><div id="throttle">—</div>
       <div class="grid-label">SOC / V</div><div id="battery">—</div>
       <div class="grid-label">Load factor</div><div id="load">—</div>
       <div class="grid-label">Mode</div><div id="mode">—</div>
       <div class="grid-label">Sim time (s)</div><div id="simtime">—</div>
+    </div>
+    <div class="slider-block">
+      <div class="line">
+        <label class="slider-label">
+          <input type="checkbox" id="throttleManual" />
+          Manual throttle
+        </label>
+        <span class="slider-status" id="throttleSliderValue">0%</span>
+      </div>
+      <input type="range" id="throttleSlider" min="0" max="100" value="0" disabled />
     </div>
   </div>
   <canvas id="c"></canvas>
@@ -83,6 +101,7 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+    import { fetchRunwayConfig } from './fetchRunwayConfig.js';
 
     const canvas = document.getElementById('c');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -91,173 +110,309 @@
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
+    const SIM_TO_VIEWER_QUAT = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+    const SIM_TO_VIEWER_INV = SIM_TO_VIEWER_QUAT.clone().invert();
 
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(4, 3, 6);
-    const initialCamera = camera.position.clone();
+    // Load config and initialize scene
+    let RUNWAY_START, CAMERA_OFFSET, camera, initialCamera, controls, initialTarget;
+    let runwayLength, runwayWidth, propertySize;
+    (async () => {
+      const config = await fetchRunwayConfig();
+      // Use config values
+      const r = config.runway;
+      const p = config.property;
+      RUNWAY_START = new THREE.Vector3(r.start[0], r.start[1], r.start[2]).applyQuaternion(SIM_TO_VIEWER_QUAT);
+      runwayLength = r.length;
+      runwayWidth = r.width;
+      propertySize = p.size;
+      // Camera offset: in front of aircraft, looking down runway (X+), slightly above and offset
+      CAMERA_OFFSET = new THREE.Vector3(8, 3, 6);
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.copy(RUNWAY_START.clone().add(CAMERA_OFFSET));
+      camera.lookAt(RUNWAY_START);
+      initialCamera = camera.position.clone();
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.target.set(0, 0, 0);
-    const initialTarget = controls.target.clone();
+      // --- Add Runway Mesh ---
+      const runwayGeometry = new THREE.PlaneGeometry(runwayLength, runwayWidth);
+      const runwayMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
+      const runway = new THREE.Mesh(runwayGeometry, runwayMaterial);
+      runway.position.set(0, RUNWAY_START.y, 0);
+      runway.rotation.x = -Math.PI / 2;
+      scene.add(runway);
 
-    const light = new THREE.DirectionalLight(0xffffff, 1.2);
-    light.position.set(5, 10, 7);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+      // --- Add Property Boundary ---
+      const propertyShape = new THREE.Shape();
+      propertyShape.moveTo(-propertySize/2, -propertySize/2);
+      propertyShape.lineTo(propertySize/2, -propertySize/2);
+      propertyShape.lineTo(propertySize/2, propertySize/2);
+      propertyShape.lineTo(-propertySize/2, propertySize/2);
+      propertyShape.lineTo(-propertySize/2, -propertySize/2);
+      const propertyPoints = propertyShape.getPoints();
+      const propertyGeometry = new THREE.BufferGeometry().setFromPoints(propertyPoints.map(pt => new THREE.Vector3(pt.x, RUNWAY_START.y + 0.01, pt.y)));
+      const propertyLine = new THREE.Line(propertyGeometry, new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 }));
+      propertyLine.position.set(0, 0, 0);
+      scene.add(propertyLine);
 
-    const wsUrl = 'ws://localhost:8765';
-    let ws;
-    let isPaused = false;
-    let lastHeartbeatTime = null;
-    let heartbeatValue = null;
-    const statusEl = document.getElementById('status');
-    const wsUrlEl = document.getElementById('ws-url');
-    const hbEl = document.getElementById('heartbeat');
-    const hbAgeEl = document.getElementById('hb-age');
-    const hbDot = document.getElementById('hb-dot');
-    const connDot = document.getElementById('conn-dot');
-    const posEl = document.getElementById('pos');
-    const velEl = document.getElementById('vel');
-    const ratesEl = document.getElementById('rates');
-    const quatEl = document.getElementById('quat');
-    const surfEl = document.getElementById('surfaces');
-    const throttleEl = document.getElementById('throttle');
-    const batteryEl = document.getElementById('battery');
-    const loadEl = document.getElementById('load');
-    const modeEl = document.getElementById('mode');
-    const simTimeEl = document.getElementById('simtime');
-    const pauseBtn = document.getElementById('pauseBtn');
-    const resetBtn = document.getElementById('resetBtn');
+      // --- Add Ground Plane ---
+      const groundGeometry = new THREE.PlaneGeometry(propertySize, propertySize);
+      const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x226622, roughness: 1.0, metalness: 0.0, transparent: true, opacity: 0.5 });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.position.set(0, RUNWAY_START.y - 0.01, 0);
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
 
-    wsUrlEl.textContent = wsUrl;
-    wsUrlEl.title = 'Telemetry endpoint';
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.target.copy(RUNWAY_START);
+      initialTarget = controls.target.clone();
 
-    const loader = new GLTFLoader();
-    let model = null;
+      const light = new THREE.DirectionalLight(0xffffff, 1.2);
+      light.position.set(5, 10, 7);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-    loader.load('Udaan-Product4.gltf', (gltf) => {
-      model = gltf.scene;
-      // Apply a small rotation so the initial view is nicer.
-      model.rotation.x = Math.PI / 2; // swap Z-down into Three's Y-up baseline
-      scene.add(model);
-      statusEl.textContent = 'Status: glTF loaded; waiting for telemetry…';
-    }, undefined, (err) => {
-      statusEl.textContent = 'Status: glTF load error';
-      console.error(err);
-    });
+      // Continue with rest of viewer setup (GLTF, telemetry, etc.)
+      setupViewer();
+    })();
 
-    function setConn(status) {
-      connDot.className = 'dot ' + status;
+    // The rest of the viewer logic is wrapped in a function to be called after config loads
+    function setupViewer() {
+      const wsUrl = 'ws://localhost:8765';
+      let ws;
+      let isPaused = false;
+      let lastHeartbeatTime = null;
+      let heartbeatValue = null;
+      const statusEl = document.getElementById('status');
+      const unitLabel = document.getElementById('unitLabel');
+      const wsUrlEl = document.getElementById('ws-url');
+      const hbEl = document.getElementById('heartbeat');
+      const hbAgeEl = document.getElementById('hb-age');
+      const hbDot = document.getElementById('hb-dot');
+      const connDot = document.getElementById('conn-dot');
+      const posEl = document.getElementById('pos');
+      const velEl = document.getElementById('vel');
+      const ratesEl = document.getElementById('rates');
+      const quatEl = document.getElementById('quat');
+      const surfEl = document.getElementById('surfaces');
+      const throttleEl = document.getElementById('throttle');
+      const batteryEl = document.getElementById('battery');
+      const loadEl = document.getElementById('load');
+      const modeEl = document.getElementById('mode');
+      const simTimeEl = document.getElementById('simtime');
+      const pauseBtn = document.getElementById('pauseBtn');
+      const resetBtn = document.getElementById('resetBtn');
+
+      wsUrlEl.textContent = wsUrl;
+      wsUrlEl.title = 'Telemetry endpoint';
+
+      const throttleSlider = document.getElementById('throttleSlider');
+      const throttleSliderValue = document.getElementById('throttleSliderValue');
+      const throttleManualCheckbox = document.getElementById('throttleManual');
+      const propAnimations = [];
+      const PROP_MAX_RAD_PER_SEC = (12000 / 60) * 2 * Math.PI;
+      let currentThrottle = 0.0;
+      let telemetryThrottleValue = 0.0;
+      let manualThrottleValue = 0.0;
+      let manualThrottleActive = false;
+
+      const setSliderFromValue = (value) => {
+        const percent = Math.round(value * 100);
+        throttleSlider.value = percent;
+        throttleSliderValue.textContent = `${percent}%`;
+      };
+
+      throttleManualCheckbox.addEventListener('change', () => {
+        manualThrottleActive = throttleManualCheckbox.checked;
+        throttleSlider.disabled = !manualThrottleActive;
+        if (manualThrottleActive) {
+          manualThrottleValue = Number(throttleSlider.value) / 100;
+          currentThrottle = manualThrottleValue;
+          throttleEl.textContent = `${(manualThrottleValue * 100).toFixed(1)}% (manual)`;
+        } else {
+          currentThrottle = telemetryThrottleValue;
+          setSliderFromValue(telemetryThrottleValue);
+          throttleEl.textContent = `${(telemetryThrottleValue * 100).toFixed(1)}%`;
+        }
+      });
+
+      throttleSlider.addEventListener('input', () => {
+        throttleSliderValue.textContent = `${throttleSlider.value}%`;
+        if (manualThrottleActive) {
+          manualThrottleValue = Number(throttleSlider.value) / 100;
+          currentThrottle = manualThrottleValue;
+          throttleEl.textContent = `${(manualThrottleValue * 100).toFixed(1)}% (manual)`;
+        }
+      });
+
+      const loader = new GLTFLoader();
+      let model = null;
+      let modelGroup = null;
+      const telemetryPos = new THREE.Vector3();
+      const modelPlacementOffset = new THREE.Vector3();
+      const bboxCenter = new THREE.Vector3();
+      const simPositionVec = new THREE.Vector3();
+
+      const preparePropSpinner = (mesh, axis) => {
+        if (!mesh) return;
+        const spinAxis = axis.clone().normalize();
+        propAnimations.push({ mesh, axis: spinAxis });
+      };
+
+      loader.load('Udaan-Product4.gltf', (gltf) => {
+        model = gltf.scene;
+        model.updateMatrixWorld(true);
+        const bbox = new THREE.Box3().setFromObject(model);
+        bbox.getCenter(bboxCenter);
+        modelPlacementOffset.set(-bbox.min.x, -bbox.min.y, -bboxCenter.z);
+        model.position.copy(modelPlacementOffset);
+
+        let propCount = 0;
+        const propSet = new Set();
+        model.traverse((obj) => {
+          if (!obj.name || !obj.isMesh) return;
+          if (obj.name.startsWith('Propellor') && !propSet.has(obj.uuid)) {
+            propSet.add(obj.uuid);
+            preparePropSpinner(obj, new THREE.Vector3(1, 0, 0));
+            const anim = propAnimations[propAnimations.length - 1];
+            anim.direction = propCount % 2 === 0 ? 1 : -1;
+            propCount += 1;
+          }
+        });
+
+        modelGroup = new THREE.Group();
+        modelGroup.add(model);
+        modelGroup.position.copy(RUNWAY_START);
+        modelGroup.quaternion.identity();
+        scene.add(modelGroup);
+        statusEl.textContent = 'Status: glTF loaded; waiting for telemetry…';
+      }, undefined, (err) => {
+        statusEl.textContent = 'Status: glTF load error';
+        console.error(err);
+      });
+
+      function setConn(status) { connDot.className = 'dot ' + status; }
+      function setHeartbeatStatus(status) { hbDot.className = 'dot ' + status; }
+      function formatVec(v, digits = 2) { if (!Array.isArray(v)) return '—'; return v.map((x) => (typeof x === 'number' ? x.toFixed(digits) : '—')).join(', '); }
+    const METERS_TO_FEET = 3.280839895;
+    const RAD_TO_DEG = 180 / Math.PI;
+    function convertArray(arr, scale) {
+      return Array.isArray(arr) ? arr.map((v) => (typeof v === 'number' ? v * scale : v)) : arr;
     }
-
-    function setHeartbeatStatus(status) {
-      hbDot.className = 'dot ' + status;
-    }
-
-    function formatVec(v, digits = 2) {
-      if (!Array.isArray(v)) return '—';
-      return v.map((x) => (typeof x === 'number' ? x.toFixed(digits) : '—')).join(', ');
+    function toImperialPayload(data) {
+      if (!data) return data;
+      if (data.units === 'imperial') return data;
+      const converted = { ...data };
+      converted.position = convertArray(data.position, METERS_TO_FEET);
+      converted.velocity = convertArray(data.velocity, METERS_TO_FEET);
+      converted.surfaces = convertArray(data.surfaces, RAD_TO_DEG);
+      converted.rates = convertArray(data.rates, RAD_TO_DEG);
+      converted.units = 'imperial';
+      return converted;
     }
 
     function updateHud(data) {
+      const units = data.units || 'imperial';
+      unitLabel.textContent = units === 'imperial' ? 'imperial (ft, ft/s, deg)' : units;
       if (data.position) posEl.textContent = formatVec(data.position);
       if (data.velocity) velEl.textContent = formatVec(data.velocity);
       if (data.rates) ratesEl.textContent = formatVec(data.rates);
       if (data.quaternion) quatEl.textContent = formatVec(data.quaternion, 3);
       if (data.surfaces) surfEl.textContent = formatVec(data.surfaces, 2);
-      if (typeof data.throttle === 'number') throttleEl.textContent = (data.throttle * 100).toFixed(1) + '%';
-      if (typeof data.soc === 'number' && typeof data.voltage === 'number') {
-        batteryEl.textContent = `${(data.soc * 100).toFixed(1)}% / ${data.voltage.toFixed(2)} V`;
-      }
-      if (typeof data.load_factor === 'number') loadEl.textContent = data.load_factor.toFixed(2) + ' g';
-      if (data.mode) modeEl.textContent = data.mode;
-      if (typeof data.sim_time === 'number') simTimeEl.textContent = data.sim_time.toFixed(2);
-    }
-
-    function connectWs() {
-      ws = new WebSocket(wsUrl);
-      ws.onopen = () => {
-        statusEl.textContent = 'Status: telemetry connected';
-        setConn('connected');
-      };
-      ws.onclose = () => {
-        statusEl.textContent = 'Status: telemetry disconnected; retrying…';
-        setConn('disconnected');
-        setTimeout(connectWs, 1500);
-      };
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          const [x, y, z] = data.position || [0, 0, 0];
-          const [w, qx, qy, qz] = data.quaternion || [1, 0, 0, 0];
-
-          // Update HUD regardless of pause to keep numbers fresh.
-          updateHud(data);
-          heartbeatValue = typeof data.heartbeat === 'number' ? data.heartbeat : heartbeatValue;
-          lastHeartbeatTime = performance.now();
-          hbEl.textContent = heartbeatValue ?? '—';
-          hbAgeEl.textContent = 'age 0 ms';
-          setHeartbeatStatus('connected');
-
-          if (!isPaused && model) {
-            // Convert Z-down to Three's Y-up: flip Z axis and rotate +90 deg about X.
-            model.position.set(x, y, -z);
-            const qSim = new THREE.Quaternion(qx, qy, qz, w);
-            const qFix = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
-            model.quaternion.copy(qFix.multiply(qSim));
-          }
-        } catch (e) {
-          console.warn('Bad telemetry payload', e);
+        if (manualThrottleActive) {
+          throttleEl.textContent = (manualThrottleValue * 100).toFixed(1) + '% (manual)';
+        } else if (typeof data.throttle === 'number') {
+          throttleEl.textContent = (data.throttle * 100).toFixed(1) + '%';
         }
-      };
-    }
-
-    connectWs();
-
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    window.addEventListener('resize', onWindowResize);
-
-    pauseBtn.addEventListener('click', () => {
-      isPaused = !isPaused;
-      pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
-      statusEl.textContent = isPaused ? 'Status: paused (pose held)' : 'Status: telemetry connected';
-    });
-
-    resetBtn.addEventListener('click', () => {
-      camera.position.copy(initialCamera);
-      controls.target.copy(initialTarget);
-      controls.update();
-      if (model) {
-        model.position.set(0, 0, 0);
-        model.rotation.set(Math.PI / 2, 0, 0);
+        if (typeof data.soc === 'number' && typeof data.voltage === 'number') batteryEl.textContent = `${(data.soc * 100).toFixed(1)}% / ${data.voltage.toFixed(2)} V`;
+        if (typeof data.load_factor === 'number') loadEl.textContent = data.load_factor.toFixed(2) + ' g';
+        if (data.mode) modeEl.textContent = data.mode;
+        if (typeof data.sim_time === 'number') simTimeEl.textContent = data.sim_time.toFixed(2);
       }
-    });
-
-    // Heartbeat freshness indicator.
-    setInterval(() => {
-      if (lastHeartbeatTime === null) return;
-      const ageMs = performance.now() - lastHeartbeatTime;
-      hbAgeEl.textContent = `age ${ageMs.toFixed(0)} ms`;
-      if (ageMs > 1500) {
-        setHeartbeatStatus('stale');
-      } else if (ageMs > 400) {
-        setHeartbeatStatus('warn');
-      } else {
-        setHeartbeatStatus('connected');
+      function connectWs() {
+        ws = new WebSocket(wsUrl);
+        window.wsClient = ws;
+        ws.onopen = () => { statusEl.textContent = 'Status: telemetry connected'; setConn('connected'); };
+        ws.onclose = () => { statusEl.textContent = 'Status: telemetry disconnected; retrying…'; setConn('disconnected'); setTimeout(connectWs, 1500); };
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            window.lastTelemetry = data;
+            const [x, y, z] = data.position || [0, 0, 0];
+            const [w, qx, qy, qz] = data.quaternion || [1, 0, 0, 0];
+            if (typeof data.throttle === 'number') {
+              const telemThrottle = THREE.MathUtils.clamp(data.throttle, 0, 1);
+              telemetryThrottleValue = telemThrottle;
+              if (!manualThrottleActive) {
+                currentThrottle = telemThrottle;
+                setSliderFromValue(telemThrottle);
+              }
+            }
+        const imperialData = toImperialPayload(data);
+        updateHud(imperialData);
+        if (typeof data.throttle === 'number') {
+          currentThrottle = THREE.MathUtils.clamp(data.throttle, 0, 1);
+        }
+            heartbeatValue = typeof data.heartbeat === 'number' ? data.heartbeat : heartbeatValue;
+            lastHeartbeatTime = performance.now();
+            hbEl.textContent = heartbeatValue ?? '—';
+            hbAgeEl.textContent = 'age 0 ms';
+            setHeartbeatStatus('connected');
+            if (!isPaused && modelGroup) {
+              simPositionVec.set(x, y, z).applyQuaternion(SIM_TO_VIEWER_QUAT);
+              telemetryPos.copy(simPositionVec);
+              modelGroup.position.copy(telemetryPos);
+              const qSim = new THREE.Quaternion(qx, qy, qz, w);
+              const qDisplay = SIM_TO_VIEWER_QUAT.clone()
+                .multiply(qSim)
+                .multiply(SIM_TO_VIEWER_INV);
+              modelGroup.quaternion.copy(qDisplay);
+            }
+          } catch (e) { console.warn('Bad telemetry payload', e); }
+        };
       }
-    }, 200);
-
-    function animate() {
-      requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
+      connectWs();
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      window.addEventListener('resize', onWindowResize);
+      pauseBtn.addEventListener('click', () => {
+        isPaused = !isPaused;
+        pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+        statusEl.textContent = isPaused ? 'Status: paused (pose held)' : 'Status: telemetry connected';
+      });
+      resetBtn.addEventListener('click', () => {
+        camera.position.copy(initialCamera);
+        controls.target.copy(initialTarget);
+        controls.update();
+        if (modelGroup) {
+          modelGroup.position.copy(RUNWAY_START);
+          modelGroup.quaternion.identity();
+        }
+      });
+      setInterval(() => {
+        if (lastHeartbeatTime === null) return;
+        const ageMs = performance.now() - lastHeartbeatTime;
+        hbAgeEl.textContent = `age ${ageMs.toFixed(0)} ms`;
+        if (ageMs > 1500) setHeartbeatStatus('stale');
+        else if (ageMs > 400) setHeartbeatStatus('warn');
+        else setHeartbeatStatus('connected');
+      }, 200);
+      const clock = new THREE.Clock();
+      function animate() {
+        requestAnimationFrame(animate);
+        const dt = clock.getDelta();
+        const spinRate = currentThrottle * PROP_MAX_RAD_PER_SEC;
+        propAnimations.forEach((anim) => {
+          const dir = anim.direction ?? 1;
+          anim.mesh.rotateOnAxis(anim.axis, dir * spinRate * dt);
+        });
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      animate();
     }
-    animate();
   </script>
 </body>
 </html>

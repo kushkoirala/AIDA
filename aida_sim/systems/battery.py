@@ -2,7 +2,7 @@ import numpy as np
 
 # Simple SoC + internal resistance battery model.
 class Battery:
-    def __init__(self, capacity_ah: float = 1.5, nominal_voltage: float = 12.0, r_internal: float = 0.05):
+    def __init__(self, capacity_ah: float = 2.0, nominal_voltage: float = 16.0, r_internal: float = 0.06):
         self.capacity_ah = capacity_ah
         self.nominal_voltage = nominal_voltage
         self.r_internal = r_internal

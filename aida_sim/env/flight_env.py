@@ -3,9 +3,10 @@ import gymnasium as gym
 from gymnasium import spaces
 
 from aida_sim.dynamics.state import VehicleState
-from aida_sim.dynamics.forces import aero_forces_moments, thrust_force
+from aida_sim.dynamics.forces import aero_forces_moments, propulsion_model, AeroParams
 from aida_sim.dynamics.integrator import integrate_step, _quat_to_rotmat
 from aida_sim.safety.guards import clamp_actions, enforce_limits
+from aida_sim.systems.battery import Battery
 
 
 # Gymnasium-compatible environment for the fixed-wing simulator.
@@ -14,13 +15,28 @@ class FlightEnv(gym.Env):
     metadata = {"render_modes": ["none"], "render_fps": 50}
 
     def __init__(self, dt: float = 0.02):
+        import json
+        import os
         super().__init__()
         self.dt = dt
-        self.mass = 3.4  # kg (~7.5 lb)
+        self.mass = 3.63  # kg (~8 lb per spec)
         self.inertia_diag = np.array([0.25, 0.35, 0.45], dtype=np.float32)  # rough placeholder
-        self.wing_area = 0.5  # m^2 - aircraft surface area (do not change)
+        self.wing_area = 0.432  # m^2 (≈4.65 ft^2 from aero spec)
         self.rho = 1.225
         self.geofence = np.array([304.8, 121.9, 61.0], dtype=np.float32)  # 1000ft x 400ft x 200ft
+        self.aero_params = AeroParams(wing_area=self.wing_area, wing_span=1.372, mean_chord=0.315)
+        self.battery = Battery(capacity_ah=2.0, nominal_voltage=16.0, r_internal=0.06)
+
+        # Load runway/property config from shared JSON
+        config_path = os.path.join(os.path.dirname(__file__), '../../runway_config.json')
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        r = config["runway"]
+        self.runway_length = float(r["length"])
+        self.runway_width = float(r["width"])
+        self.runway_start = np.array(r["start"], dtype=np.float32)
+        self.runway_heading = float(r["heading"])
+        # Property config available as config["property"] if needed
 
         # Action: throttle [0,1], elevator/aileron/rudder in [-1,1] mapped to deflection limits.
         self.action_space = spaces.Box(
@@ -58,14 +74,27 @@ class FlightEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
-        # Start ON THE GROUND in center of parking lot, stationary, ready for takeoff
-        pos = np.array([0.0, 0.0, 0.5], dtype=np.float32)  # 0.5m = on ground (gear height)
+        # Start ON THE GROUND at the beginning of the default runway, aligned for takeoff
+        pos = self.runway_start.copy()
         vel = np.array([0.0, 0.0, 0.0], dtype=np.float32)  # Stationary
-        orientation = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)  # Level
+        # Orientation: quaternion for heading along X+ (East), level
+        # For heading = 0, quaternion = [1, 0, 0, 0] (w, x, y, z)
+        # For heading != 0, rotate about Z axis
+        heading = self.runway_heading
+        half_angle = heading / 2.0
+        orientation = np.array([
+            np.cos(half_angle),  # w
+            0.0,                # x
+            0.0,                # y
+            np.sin(half_angle)  # z
+        ], dtype=np.float32)
         rates = np.zeros(3, dtype=np.float32)
         surfaces = np.zeros(3, dtype=np.float32)
+        # Fresh battery every reset
+        self.battery = Battery(capacity_ah=2.0, nominal_voltage=16.0, r_internal=0.06)
         self.state = VehicleState(position=pos, velocity=vel, orientation=orientation, body_rates=rates,
-                                  surfaces=surfaces, soc=1.0, voltage=12.0, load_factor=1.0)
+                                  surfaces=surfaces, soc=self.battery.soc, voltage=self.battery.voltage,
+                                  load_factor=1.0)
         info = {"termination_reason": None}
         return self._obs(self.state), info
 
@@ -87,29 +116,21 @@ class FlightEnv(gym.Env):
         R_bw = _quat_to_rotmat(self.state.orientation)
         vel_body = R_bw.T @ self.state.velocity
         airspeed = max(1e-2, float(np.linalg.norm(vel_body)))
-        # Alpha = angle of attack: positive when nose is above velocity vector
-        # For Z-up body frame: alpha = atan2(w, u) where w is vertical component
-        alpha = float(np.arctan2(vel_body[2], vel_body[0]))
-        beta = float(np.arctan2(vel_body[1], max(1e-3, np.linalg.norm(vel_body))))
 
-        q_dyn = 0.5 * self.rho * airspeed * airspeed
-        aero_forces, aero_moments = aero_forces_moments(alpha, beta, self.state.body_rates, q_dyn, self.wing_area)
-        thrust = thrust_force(throttle, airspeed)
+        aero_forces, aero_moments = aero_forces_moments(
+            vel_body,
+            self.state.body_rates,
+            surfaces,
+            self.rho,
+            self.aero_params,
+        )
+        thrust, electrical_power = propulsion_model(throttle, airspeed, self.rho)
 
         gravity_world = np.array([0.0, 0.0, -9.81 * self.mass], dtype=np.float32)
         gravity_body = R_bw.T @ gravity_world
 
         total_forces_body = aero_forces + thrust + gravity_body
-        
-        # Control surface moments (elevator = pitch, aileron = roll, rudder = yaw)
-        # Much gentler control authority for realistic pitch rates
-        control_effectiveness = 0.15  # Reduced for realistic ~20 deg/s pitch rates
-        control_moments = np.array([
-            q_dyn * self.wing_area * control_effectiveness * aileron,    # Roll moment (aileron)
-            q_dyn * self.wing_area * control_effectiveness * elevator,   # Pitch moment (elevator) - positive = nose up
-            q_dyn * self.wing_area * control_effectiveness * rudder      # Yaw moment (rudder)
-        ], dtype=np.float32)
-        total_moments_body = aero_moments + control_moments
+        total_moments_body = aero_moments
 
         next_state = integrate_step(self.state, total_forces_body, total_moments_body,
                                     self.mass, self.inertia_diag, self.dt)
@@ -144,6 +165,13 @@ class FlightEnv(gym.Env):
             # Hard ground collision 
             next_state.position[2] = 0.0
         
+        # Battery and electrical
+        voltage_before = max(self.battery.voltage, 1.0)
+        electrical_current = electrical_power / voltage_before if electrical_power > 0.0 else 0.0
+        voltage_after = self.battery.step(electrical_current, self.dt)
+        next_state.soc = self.battery.soc
+        next_state.voltage = voltage_after
+
         # Correct load factor (felt Gs)
         non_grav_forces = aero_forces + thrust
         next_state.load_factor = float(np.linalg.norm(non_grav_forces) / (self.mass * 9.81))
