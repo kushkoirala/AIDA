@@ -120,7 +120,7 @@ def aero_forces_moments(
     # Convert lift/drag to body axes (X forward, Y right, Z up)
     ca, sa = np.cos(alpha), np.sin(alpha)
     Fx = -drag * ca + lift * sa
-    Fz = -lift * ca - drag * sa
+    Fz = -drag * sa + lift * ca  # lift is positive upward in body Z-up frame
     forces = np.array([Fx, side, Fz], dtype=np.float32)
 
     moments = np.array(

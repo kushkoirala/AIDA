@@ -6,6 +6,21 @@ from typing import Callable, Awaitable
 import numpy as np
 import websockets
 
+
+def _to_jsonable(obj):
+    """Convert numpy types/arrays to plain Python for json.dumps."""
+    if isinstance(obj, dict):
+        return {k: _to_jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_jsonable(v) for v in obj]
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    return obj
+
 # Minimal telemetry broadcaster over WebSocket. Adds heartbeat and sim_time if missing.
 async def telemetry_server(
     state_fn: Callable[[], dict],
@@ -23,7 +38,7 @@ async def telemetry_server(
         heartbeat = 0
         start = time.monotonic()
         while True:
-            payload = dict(state_fn())
+            payload = _to_jsonable(state_fn())
             heartbeat += 1
             payload.setdefault("heartbeat", heartbeat)
             payload.setdefault("sim_time", time.monotonic() - start)

@@ -441,7 +441,7 @@ def main():
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu or cuda)")
     parser.add_argument("--eval-only", action="store_true", help="Only evaluate, don't train")
     parser.add_argument("--checkpoint", type=str, default=None, help="Checkpoint to load")
-    parser.add_argument("--task", type=str, default="cruise", choices=["cruise", "takeoff"],
+    parser.add_argument("--task", type=str, default="takeoff_and_cruise", choices=["cruise", "takeoff", "takeoff_and_cruise"],
                         help="Training task type")
     args = parser.parse_args()
     

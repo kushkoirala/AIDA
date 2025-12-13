@@ -29,7 +29,7 @@ PROPSHOX_SPEC = {
     "takeoff_weight_lb": 7.5,
     "landing_weight_lb": 5.5,
     "v_stall_fps": 36.64,
-    "v_takeoff_fps": 43.97,
+    "v_takeoff_fps": 41.26,
     "v_landing_fps": 47.63,
     # Flight test data (Propulsion Sec. 3.2)
     "v_cruise_fps": 73.5,
@@ -88,7 +88,6 @@ class FlightEnvRL(gym.Env):
         self.max_episode_steps = max_episode_steps
         self.task = task
         self.step_count = 0
-        
         # Aircraft parameters
         self.tennis_ball_mass = 0.057 * 4  # ≈4 tennis balls (kg)
         self.mass = PROPSHOX_DATA["mass_takeoff"] + self.tennis_ball_mass  # kg, include payload
@@ -101,7 +100,7 @@ class FlightEnvRL(gym.Env):
         # Flight envelope constraints (from analysis)
         self.V_STALL = PROPSHOX_DATA["stall_speed"]
         self.V_MAX = PROPSHOX_DATA["max_speed"]  # m/s (PropShox Vmax)
-        self.MAX_G = 6.0     # More permissive for training
+        self.MAX_G = 12.0     # More permissive for training (stage-dependent adjustments below)
         self.MAX_BANK = np.deg2rad(45)
         self.MAX_PITCH = np.deg2rad(30)
         
@@ -171,7 +170,7 @@ class FlightEnvRL(gym.Env):
         # Normalized observation space
         # [pos_norm(3), vel_norm(3), attitude(3), rates_norm(3),
         #  airspeed_norm, altitude_norm, distance_to_target, heading_to_target, trim_norm, mission_phase]
-        obs_dim = 19
+        obs_dim = 29
         self.observation_space = spaces.Box(
             low=-np.ones(obs_dim, dtype=np.float32) * 10,
             high=np.ones(obs_dim, dtype=np.float32) * 10,
@@ -179,17 +178,36 @@ class FlightEnvRL(gym.Env):
         )
 
         self.state = None
-        self.surface_limits = np.deg2rad(np.array([20.0, 20.0, 20.0], dtype=np.float32))
+        self.surface_limits = np.deg2rad(np.array([15.0, 15.0, 15.0], dtype=np.float32))
         # Trim priors are blended online and re-used on reset
         self.trim_learning_rate = 0.35
         self.trim_memory = {
-            "elevator": np.deg2rad(-2.5),
+            "elevator": np.deg2rad(-10.0),
             "rudder": np.deg2rad(0.5),
         }
         self.trim_elevator = self.trim_memory["elevator"]
         self.trim_rudder = self.trim_memory["rudder"]
         self.trim_limit = np.deg2rad(10.0)
         self.trim_rate = np.deg2rad(1.2)
+        # Curriculum level: 0=hold at target, 1=capture from mid-air, 2=runway takeoff+climb
+        self.curriculum_level = 2
+        # Integrators and history for richer observations
+        self.alt_error_int = 0.0
+        self.speed_error_int = 0.0
+        self.prev_vz = 0.0
+        self.last_action = np.zeros(6, dtype=np.float32)
+        self.last_target_altitude = self.mission_altitude
+        self.last_target_speed = self.cruise_speed
+        self.stage_surface_limits = {
+            0: np.deg2rad(np.array([6.0, 6.0, 6.0], dtype=np.float32)),
+            1: np.deg2rad(np.array([8.0, 8.0, 8.0], dtype=np.float32)),
+            2: np.deg2rad(np.array([6.0, 6.0, 6.0], dtype=np.float32)),
+        }
+        # Cruise/hold target for curriculum level 0 (200 ft)
+        self.stage0_altitude = 60.96  # meters (~200 ft)
+        # Tight band for level-0 visualization (±5 ft ≈ 1.52 m) and brief grace windows
+        self.level0_alt_band = 1.524  # meters
+        self.level0_grace_steps = int(2.0 / self.dt)  # ≈2 seconds
 
     def _get_attitude(self, quat):
         """Extract roll, pitch, yaw from quaternion."""
@@ -304,6 +322,13 @@ class FlightEnvRL(gym.Env):
             clamped_idx = min(self.phase_index, len(self.mission_phases) - 1)
             phase_norm = float(clamped_idx) / denom if denom > 0 else 0.0
 
+        vz = vs.velocity[2]
+        vz_norm = vz / 15.0
+        vz_acc = (vz - self.prev_vz) / max(1e-3, self.dt)
+        vz_acc_norm = vz_acc / 20.0
+        alt_int_norm = np.clip(self.alt_error_int / 200.0, -1.0, 1.0)
+        speed_int_norm = np.clip(self.speed_error_int / 50.0, -1.0, 1.0)
+
         obs = np.concatenate([
             pos_norm,           # 3
             vel_norm,           # 3
@@ -311,11 +336,16 @@ class FlightEnvRL(gym.Env):
             rates_norm,         # 3
             [airspeed_norm],    # 1
             [altitude_norm],    # 1
+            [vz_norm],          # 1
+            [vz_acc_norm],      # 1
             [distance_norm],    # 1
             [heading_norm],     # 1
             [trim_norm],        # 1
             [rudder_trim_norm], # 1
             [phase_norm],       # 1
+            [alt_int_norm],     # 1
+            [speed_int_norm],   # 1
+            self.last_action,   # 6
         ]).astype(np.float32)
         
         return obs
@@ -332,13 +362,14 @@ class FlightEnvRL(gym.Env):
 
     def _ground_reaction_forces(self, R_bw: np.ndarray):
         zero = np.zeros(3, dtype=np.float32)
-        if self.task != "takeoff":
+        if self.task not in ("takeoff", "takeoff_and_cruise"):
             return zero, False
         if self.state is None:
             return zero, False
         near_ground = self.state.position[2] <= self.ground_height + 1e-3
-        descending = self.state.velocity[2] <= 1.0
-        if not (near_ground and descending):
+        # Provide normal force while near ground unless we are clearly climbing away
+        lifting_off = self.state.velocity[2] > 0.5
+        if not near_ground or lifting_off:
             return zero, False
 
         normal_world = np.array([0.0, 0.0, self.mass * 9.81], dtype=np.float32)
@@ -358,44 +389,77 @@ class FlightEnvRL(gym.Env):
         attitude = self._get_attitude(vs.orientation)
         roll, pitch, yaw = attitude
         
+        # If curriculum level 0: simplified stabilizing reward
+        if self.curriculum_level == 0:
+            reward += 0.2  # survival
+            target_speed = self.last_target_speed
+            speed_error = airspeed - target_speed
+            reward += 1.5 * np.exp(- (speed_error * speed_error) / (2.0 * 4.0 * 4.0))
+            reward -= 0.005 * abs(speed_error)
+
+            target_altitude = self.last_target_altitude if not mission_complete else self.ground_height + 0.5
+            alt_error = altitude - target_altitude
+            reward += 3.0 * np.exp(- (alt_error * alt_error) / (2.0 * 4.0 * 4.0))
+            reward -= 0.01 * abs(alt_error)
+
+            vz = vs.velocity[2]
+            reward -= 0.5 * min(abs(vz), 3.0)
+
+            # Attitude/rate damping
+            reward -= 0.4 * (abs(roll) + abs(pitch))
+            reward -= 0.1 * np.linalg.norm(vs.body_rates)
+
+            # Lateral mild penalty to stay near origin
+            lateral = float(np.hypot(vs.position[0], vs.position[1]))
+            reward -= 0.02 * min(lateral, 200.0)
+
+            # Control smoothness
+            control_mag = np.linalg.norm(action[1:])
+            reward -= 0.1 * control_mag
+
+            if altitude < 0.0:
+                reward -= 5.0
+            return float(reward)
+
+        heading_error = 0.0
         # === SURVIVAL REWARD ===
         reward += 0.1  # Small reward for each step survived
         
-        # === AIRSPEED REWARD ===
-        # Encourage staying in safe speed envelope
-        target_speed = self.cruise_speed
-        speed_error = abs(airspeed - target_speed)
-        reward -= 0.05 * speed_error
-        
-        # Penalize being too slow (stall risk) or too fast (G risk)
-        if airspeed < self.V_STALL:
-            reward -= 0.5  # Stall penalty
+        # === AIRSPEED REWARD (Gaussian) ===
+        target_speed = self.last_target_speed
+        speed_error = airspeed - target_speed
+        sigma_v = 5.0
+        reward += 1.5 * np.exp(-(speed_error * speed_error) / (2.0 * sigma_v * sigma_v))
+        reward -= 0.005 * abs(speed_error)
+        # Stall guard
+        if airspeed < self.V_STALL * 1.1:
+            reward -= 5.0
         if airspeed > self.V_MAX:
             reward -= 0.3  # Overspeed penalty
         
-        # === ALTITUDE / CLIMB REWARD ===
-        if mission_complete:
-            target_altitude = self.ground_height + 0.5
-        elif phase:
-            if phase["type"] == "altitude":
-                target_altitude = float(phase["target"])
-            else:
-                target_altitude = float(guidance_target[2])
-        else:
-            target_altitude = 15.0  # meters default
+        # === ALTITUDE / CLIMB REWARD (Gaussian + damping) ===
+        target_altitude = self.last_target_altitude if not mission_complete else self.ground_height + 0.5
         alt_error = altitude - target_altitude
-        reward -= 0.02 * abs(alt_error)
+        sigma_h = 6.0
+        reward += 3.0 * np.exp(-(alt_error * alt_error) / (2.0 * sigma_h * sigma_h))
+        reward -= 0.01 * abs(alt_error)
         if altitude > self.ceiling_warning:
             reward -= 0.5 * (altitude - self.ceiling_warning)
-        
-        # Penalize aggressive climb/descent outside envelope
+        # Penalize aggressive climb/descent outside envelope, reward gentle climb
         climb_rate = vs.velocity[2]
         climb_limit = 6.0
         descent_limit = -4.0
+        if abs(alt_error) < 6.0:
+            reward -= 1.0 * max(0.0, abs(climb_rate) - 0.3)
+            reward -= 0.5 * (abs(attitude[1]) > np.deg2rad(5.0)) * abs(attitude[1])
         if climb_rate > climb_limit:
             reward -= 0.02 * (climb_rate - climb_limit)
         if climb_rate < descent_limit:
             reward -= 0.02 * (descent_limit - climb_rate)
+        if climb_rate > 0.0:
+            reward += 0.03 * np.clip(climb_rate, 0.0, 6.0)
+        else:
+            reward -= 0.03 * np.clip(-climb_rate, 0.0, 4.0)
         
         # Big penalty for ground proximity
         if altitude < 2.0:
@@ -418,6 +482,7 @@ class FlightEnvRL(gym.Env):
         
         # === ATTITUDE REWARD ===
         # Penalize excessive bank and pitch
+        reward += 0.05 * np.clip(pitch, 0.0, np.deg2rad(15.0))
         reward -= 0.1 * abs(roll)
         reward -= 0.1 * abs(pitch)
         if abs(roll) > self.MAX_BANK:
@@ -428,11 +493,11 @@ class FlightEnvRL(gym.Env):
         # === SMOOTHNESS REWARD ===
         # Penalize large control inputs (encourage smooth flying)
         control_mag = np.linalg.norm(action[1:])  # elevator, aileron, rudder
-        reward -= 0.05 * control_mag
+        reward -= 0.1 * control_mag
         
         # === G-LOAD PENALTY ===
-        if vs.load_factor > 3.0:
-            reward -= 0.2 * (vs.load_factor - 3.0)
+        if vs.load_factor > 2.0:
+            reward -= 0.2 * (vs.load_factor - 2.0)
 
         # === MISSION PHASE PROGRESS ===
         phase_advances = info.get("phase_advances", 0)
@@ -456,9 +521,10 @@ class FlightEnvRL(gym.Env):
         if distance < self.target_radius:
             reward += 3.0
 
-        target_heading = np.arctan2(to_target[1], to_target[0])
-        heading_error = np.arctan2(np.sin(target_heading - yaw), np.cos(target_heading - yaw))
-        reward -= 0.05 * abs(heading_error)
+        if distance > 1e-6:
+            target_heading = np.arctan2(to_target[1], to_target[0])
+            heading_error = np.arctan2(np.sin(target_heading - yaw), np.cos(target_heading - yaw))
+            reward -= 0.05 * abs(heading_error)
         
         # === TERMINATION PENALTIES ===
         if terminated:
@@ -489,7 +555,7 @@ class FlightEnvRL(gym.Env):
         roll, pitch, yaw = self._get_attitude(vs.orientation)
         yaw_error = np.arctan2(np.sin(yaw - self.runway_heading), np.cos(yaw - self.runway_heading))
         commanded_throttle = np.clip(0.5 * (action[0] + 1.0), 0.0, 1.0)
-        takeoff_speed = 13.4
+        takeoff_speed = self.takeoff_target_speed
         throttle = 0.98 if (self.task == "takeoff" and forward_speed < takeoff_speed) else commanded_throttle
 
         # Strong incentive to stay aligned with runway centerline
@@ -553,9 +619,24 @@ class FlightEnvRL(gym.Env):
         super().reset(seed=seed)
         self.step_count = 0
         self.phase_index = 0
-        if self.task == "takeoff":
+        self.alt_error_int = 0.0
+        self.speed_error_int = 0.0
+        self.prev_vz = 0.0
+        self.last_action = np.zeros(6, dtype=np.float32)
+        self.last_target_altitude = self.mission_altitude
+        self.last_target_speed = self.cruise_speed
+        takeoff_mode = self.task in ("takeoff", "takeoff_and_cruise") and self.curriculum_level >= 2
+        if self.curriculum_level == 0:
+            return self._reset_hold_altitude()
+        if self.curriculum_level == 1:
+            return self._reset_capture_altitude()
+        if takeoff_mode:
             return self._reset_takeoff()
         return self._reset_airborne()
+
+    def set_curriculum_level(self, level: int):
+        """Externally set the curriculum level for staged training."""
+        self.curriculum_level = int(level)
 
     def _reset_airborne(self):
         if self.np_random is not None:
@@ -601,6 +682,7 @@ class FlightEnvRL(gym.Env):
         )
         self.trim_elevator = self.trim_memory["elevator"]
         self.trim_rudder = self.trim_memory["rudder"]
+        self.prev_vz = vel[2]
         return self._obs(self.state), {"termination_reason": None}
 
     def _reset_takeoff(self):
@@ -631,6 +713,101 @@ class FlightEnvRL(gym.Env):
         )
         self.trim_elevator = self.trim_memory["elevator"]
         self.trim_rudder = self.trim_memory["rudder"]
+        self.prev_vz = vel[2]
+        return self._obs(self.state), {"termination_reason": None}
+
+    def _reset_hold_altitude(self):
+        """Curriculum level 0: spawn at target altitude and cruise speed to learn hold."""
+        # Spawn over the runway centerline, aligned to runway heading
+        if self.np_random is not None:
+            along = self.runway_length * 0.5 + self.np_random.uniform(-5.0, 5.0)
+            lateral = self.np_random.uniform(-1.0, 1.0)
+            heading = self.runway_heading
+            alt = self.stage0_altitude + self.np_random.uniform(-0.6, 0.6)
+            speed = self.cruise_speed * self.np_random.uniform(0.97, 1.03)
+        else:
+            along, lateral, heading, alt, speed = self.runway_length * 0.5, 0.0, self.runway_heading, self.stage0_altitude, self.cruise_speed
+
+        pos = self.runway_start + self.runway_dir * along + self.runway_right * lateral
+        pos = np.array([pos[0], pos[1], alt], dtype=np.float32)
+        vel = np.array(
+            [
+                speed * np.cos(heading),
+                speed * np.sin(heading),
+                0.0,
+            ],
+            dtype=np.float32,
+        )
+        orientation = np.array(
+            [np.cos(heading / 2), 0.0, 0.0, np.sin(heading / 2)], dtype=np.float32
+        )
+        rates = np.zeros(3, dtype=np.float32)
+        surfaces = np.array(
+            [self.trim_memory["elevator"], 0.0, self.trim_memory["rudder"]],
+            dtype=np.float32,
+        )
+
+        self.battery = Battery(**self.battery_params)
+        self.state = VehicleState(
+            position=pos,
+            velocity=vel,
+            orientation=orientation,
+            body_rates=rates,
+            surfaces=surfaces,
+            soc=self.battery.soc,
+            voltage=self.battery.voltage,
+            load_factor=1.0,
+        )
+        self.trim_elevator = self.trim_memory["elevator"]
+        self.trim_rudder = self.trim_memory["rudder"]
+        self.prev_vz = vel[2]
+        return self._obs(self.state), {"termination_reason": None}
+
+    def _reset_capture_altitude(self):
+        """Curriculum level 1: spawn below target and practice capture."""
+        if self.np_random is not None:
+            x = self.np_random.uniform(-80, 80)
+            y = self.np_random.uniform(-40, 40)
+            heading = self.np_random.uniform(-np.pi, np.pi)
+            alt = self.np_random.uniform(15.0, max(20.0, self.mission_altitude * 0.9))
+            speed = self.np_random.uniform(self.V_STALL * 1.2, self.cruise_speed * 0.9)
+        else:
+            x, y, heading = 0, 0, 0
+            alt = self.mission_altitude * 0.7
+            speed = self.cruise_speed * 0.8
+
+        pos = np.array([x, y, alt], dtype=np.float32)
+        vel = np.array(
+            [
+                speed * np.cos(heading),
+                speed * np.sin(heading),
+                self.np_random.uniform(0.0, 1.0) if self.np_random else 0.2,
+            ],
+            dtype=np.float32,
+        )
+        orientation = np.array(
+            [np.cos(heading / 2), 0.0, 0.0, np.sin(heading / 2)], dtype=np.float32
+        )
+        rates = np.zeros(3, dtype=np.float32)
+        surfaces = np.array(
+            [self.trim_memory["elevator"], 0.0, self.trim_memory["rudder"]],
+            dtype=np.float32,
+        )
+
+        self.battery = Battery(**self.battery_params)
+        self.state = VehicleState(
+            position=pos,
+            velocity=vel,
+            orientation=orientation,
+            body_rates=rates,
+            surfaces=surfaces,
+            soc=self.battery.soc,
+            voltage=self.battery.voltage,
+            load_factor=1.0,
+        )
+        self.trim_elevator = self.trim_memory["elevator"]
+        self.trim_rudder = self.trim_memory["rudder"]
+        self.prev_vz = vel[2]
         return self._obs(self.state), {"termination_reason": None}
 
     def step(self, action):
@@ -639,14 +816,15 @@ class FlightEnvRL(gym.Env):
         
         self.step_count += 1
         action = np.asarray(action, dtype=np.float32)
+        takeoff_mode = self.task in ("takeoff", "takeoff_and_cruise") and self.curriculum_level >= 2
         
         # Map actions to control inputs
         # Use 98% throttle until approach takeoff speed, then follow policy command
         commanded_throttle = 0.5 * (action[0] + 1.0)
         commanded_throttle = np.clip(commanded_throttle, 0.0, 1.0)
         forward_speed = float(np.dot(self.state.velocity, self.runway_dir))
-        takeoff_speed = 13.4  # m/s (≈44 ft/s)
-        if self.task == "takeoff" and forward_speed < takeoff_speed:
+        takeoff_speed = self.takeoff_target_speed
+        if takeoff_mode and forward_speed < takeoff_speed:
             throttle = 0.98
         else:
             throttle = commanded_throttle
@@ -656,11 +834,12 @@ class FlightEnvRL(gym.Env):
         self.trim_elevator = np.clip(self.trim_elevator + trim_delta, -self.trim_limit, self.trim_limit)
         rudder_trim_delta = action[2] * self.trim_rate
         self.trim_rudder = np.clip(self.trim_rudder + rudder_trim_delta, -self.trim_limit, self.trim_limit)
-        stick_elevator = action[3] * self.surface_limits[0]
-        elevator = np.clip(self.trim_elevator + stick_elevator, -self.surface_limits[0], self.surface_limits[0])
-        aileron = action[4] * self.surface_limits[1]
-        stick_rudder = action[5] * self.surface_limits[2]
-        rudder = np.clip(self.trim_rudder + stick_rudder, -self.surface_limits[2], self.surface_limits[2])
+        surf_limits = self.stage_surface_limits.get(self.curriculum_level, self.surface_limits)
+        stick_elevator = action[3] * surf_limits[0]
+        elevator = np.clip(self.trim_elevator + stick_elevator, -surf_limits[0], surf_limits[0])
+        aileron = action[4] * surf_limits[1]
+        stick_rudder = action[5] * surf_limits[2]
+        rudder = np.clip(self.trim_rudder + stick_rudder, -surf_limits[2], surf_limits[2])
         
         surfaces = np.array([elevator, aileron, rudder], dtype=np.float32)
 
@@ -690,7 +869,32 @@ class FlightEnvRL(gym.Env):
             self.mass, self.inertia_diag, self.dt
         )
 
-        ground_ref = self.ground_height if self.task == "takeoff" else 0.0
+        # Clip speed to a reasonable envelope to avoid runaway accelerations
+        max_speed_cap = max(self.V_MAX, 50.0)
+        speed = float(np.linalg.norm(next_state.velocity))
+        if speed > max_speed_cap:
+            next_state.velocity = next_state.velocity * (max_speed_cap / speed)
+        # For curriculum level 0 (cruise hold warm-start), softly clamp speed/altitude near targets
+        if self.curriculum_level == 0:
+            target_speed = self.cruise_speed
+            if speed > target_speed * 1.05:
+                next_state.velocity = next_state.velocity * (target_speed / max(speed, 1e-3))
+            alt = float(next_state.position[2])
+            upper = self.stage0_altitude + self.level0_alt_band
+            lower = max(0.5, self.stage0_altitude - self.level0_alt_band)
+            if alt > upper:
+                next_state.position[2] = upper
+                next_state.velocity[2] = min(next_state.velocity[2], 0.0)
+            if alt < lower:
+                next_state.position[2] = lower
+                next_state.velocity[2] = max(next_state.velocity[2], 0.0)
+            # Soft lateral damping to reduce drift in cruise view
+            lateral_mag = float(np.hypot(next_state.position[0], next_state.position[1]))
+            if lateral_mag > 30.0:
+                next_state.velocity[:2] *= 0.7
+
+        altitude_raw = float(next_state.position[2])
+        ground_ref = self.ground_height if takeoff_mode else 0.0
         if next_state.position[2] < ground_ref:
             next_state.position[2] = ground_ref
             next_state.velocity[2] = max(0.0, next_state.velocity[2])
@@ -715,6 +919,28 @@ class FlightEnvRL(gym.Env):
         # Update mission guidance before evaluating termination/reward
         phase_advances = self._advance_mission_phase(next_state)
         mission_complete = self.phase_index >= len(self.mission_phases) and bool(self.mission_phases)
+        guidance_target = self._guidance_target()
+
+        # Update integrators for altitude/airspeed tracking
+        if self.curriculum_level == 0:
+            target_altitude = self.stage0_altitude
+        elif mission_complete:
+            target_altitude = self.ground_height + 0.5
+        else:
+            phase = self._current_phase()
+            if phase and phase.get("type") == "altitude":
+                target_altitude = float(phase["target"])
+            elif phase:
+                target_altitude = float(guidance_target[2])
+            else:
+                target_altitude = self.mission_altitude
+        target_speed = self.cruise_speed if not takeoff_mode else self.takeoff_target_speed
+        self.last_target_altitude = target_altitude
+        self.last_target_speed = target_speed
+        alt_error = target_altitude - next_state.position[2]
+        speed_error = target_speed - np.linalg.norm(next_state.velocity)
+        self.alt_error_int = float(np.clip(self.alt_error_int + alt_error * self.dt, -500.0, 500.0))
+        self.speed_error_int = float(np.clip(self.speed_error_int + speed_error * self.dt, -200.0, 200.0))
 
         # Check termination conditions
         terminated = False
@@ -725,24 +951,39 @@ class FlightEnvRL(gym.Env):
             "mission_complete": mission_complete,
             "phase_advances": phase_advances,
         }
+        # Success flag for curriculum callback: close to targets or mission complete
+        success_alt = abs(alt_error) < 6.0
+        success_speed = abs(speed_error) < 4.0
+        success_rate = abs(next_state.velocity[2]) < 2.0
+        info["is_success"] = bool(mission_complete or (success_alt and success_speed and success_rate))
         
-        # Ground crash
-        if self.task != "takeoff":
-            if next_state.position[2] < 0.5:
+        # Ground crash (stage dependent: disable for level 0 to allow recovery)
+        if takeoff_mode:
+            if altitude_raw < self.ground_height - 0.2:
                 terminated = True
                 info["termination_reason"] = "crash"
         else:
-            if next_state.position[2] < 0.0:
-                terminated = True
-                info["termination_reason"] = "crash"
+            if self.curriculum_level == 0:
+                # Allow recovery and avoid sudden termination during the first/last 2 seconds
+                if altitude_raw < 0.0 and not (
+                    self.step_count < self.level0_grace_steps
+                    or (self.max_episode_steps - self.step_count) < self.level0_grace_steps
+                ):
+                    # just penalize via reward; do not terminate
+                    next_state.position[2] = 0.0
+                    next_state.velocity[2] = max(0.0, next_state.velocity[2])
+            else:
+                if altitude_raw < 0.1:
+                    terminated = True
+                    info["termination_reason"] = "crash"
         
         # Geofence
         if np.any(np.abs(next_state.position) > self.geofence):
             terminated = True
             info["termination_reason"] = "geofence"
         
-        # Over-G
-        if next_state.load_factor > self.MAX_G:
+        # Over-G (skip for level 0 to allow gentle recovery)
+        if self.curriculum_level > 2 and next_state.load_factor > self.MAX_G:
             terminated = True
             info["termination_reason"] = "over_g"
         
@@ -751,18 +992,24 @@ class FlightEnvRL(gym.Env):
             terminated = True
             info["termination_reason"] = "ceiling"
         
-        # Stall (too slow)
+        # Stall (too slow) - skip termination for level 0, just penalize in reward
         new_airspeed = np.linalg.norm(next_state.velocity)
         stall_threshold = self.V_STALL * 0.7
         stall_check = True
-        if self.task == "takeoff":
+        if takeoff_mode:
             # Allow a long ground roll to build speed before considering stall
             forward_speed = float(np.dot(next_state.velocity, self.runway_dir))
             if forward_speed < self.takeoff_target_speed * 1.1 and next_state.position[2] <= self.ground_height + 2.0:
                 stall_check = False
-        if stall_check and new_airspeed < stall_threshold:
+        if stall_check and new_airspeed < stall_threshold and self.curriculum_level > 0:
             terminated = True
             info["termination_reason"] = "stall"
+
+        if not terminated and self.curriculum_level > 2:
+            pitch = self._get_attitude(next_state.orientation)[1]
+            if (altitude_raw > self.ground_height + 2.0) and (next_state.position[2] < 15.0) and (pitch < -np.deg2rad(45.0)):
+                terminated = True
+                info["termination_reason"] = "dive_lowalt"
         
         # Episode timeout
         if self.step_count >= self.max_episode_steps:
@@ -772,20 +1019,18 @@ class FlightEnvRL(gym.Env):
             terminated = True
             info["termination_reason"] = "mission_success"
 
-        if self.task == "takeoff" and not terminated:
+        if takeoff_mode and not terminated and self.task == "takeoff":
             rel_pos = next_state.position - self.runway_start
             forward_progress = float(np.dot(rel_pos, self.runway_dir))
-            lateral_offset = abs(np.dot(rel_pos, self.runway_right))
-            if lateral_offset > self.runway_width * 0.75:
-                terminated = True
-                info["termination_reason"] = "runway_deviation"
-            elif forward_progress >= self.takeoff_distance and next_state.position[2] >= self.ground_height + self.takeoff_altitude:
+            if forward_progress >= self.takeoff_distance and next_state.position[2] >= self.ground_height + self.takeoff_altitude:
                 terminated = True
                 info["termination_reason"] = "takeoff_success"
         
         if terminated or truncated:
             self._update_trim_memory()
 
+        self.last_action = action.astype(np.float32)
+        self.prev_vz = next_state.velocity[2]
         reward = self._reward(next_state, action, terminated, info)
         self.state = next_state
         

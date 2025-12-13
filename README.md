@@ -1,6 +1,8 @@
 # AIDA
 Autonomous Intelligent Decision Architecture — integration of LLMs and neural networks for autonomy.
 
+![AIDA Aircraft](docs/img/aida-aircraft.png)<!-- drop your aircraft image at docs/img/aida-aircraft.png -->
+
 ## Minimal fixed-wing sim plan (scaffolding added)
 - Python core: NumPy/SciPy for forces + integration; Bullet/pybullet for ground/contact.
 - RL: Gymnasium API with SB3 (PPO) harness stubs in `scripts/`.
@@ -41,6 +43,25 @@ propulsion study.
 3) Hook Bullet contact points for gear and friction; expose geofence.
 4) Spin up WS telemetry bridge; point viewer to it.
 5) Provide STEP file for collision/render conversion; expect collision mesh (Bullet) + glTF (viewer) in consistent frames. Assets present: `Udaan-Product4.stl` (collision), `Udaan-Product4.gltf` (render). Run `python scripts/prepare_assets.py` to copy into runtime locations.
+
+## Branch guide (Dec 2025)
+- `Core`: mainline for simulation, PPO training, and telemetry.
+- `viewer-unreal`: UE5 viewer work (Blueprint-based) and cruise-telemetry visualization.
+- `bc_experiment`: behavior-cloning and PPO warm-start experiments.
+
+## Training status (cruise)
+- Best cruise PPO+BC checkpoint: `checkpoints/runs/ppo_sb3_vec_seed2_t1M_cruisehold_bc.zip` (Level 0, cruise-hold). Eval ≈ 2548 ± 270 reward; success rate ~0.12–0.13.
+- Telemetry viewer (run_all.sh) currently uses that cruise checkpoint at curriculum level 0 for inspection.
+- Takeoff/climb curriculum and classical-controller warm-start are still WIP; success on full-profile is lower and not yet stable.
+
+## UE viewer status
+- UE branch: `viewer-unreal`. Project uses Blueprint free-camera pawn and telemetry-driven actor (WS at `ws://127.0.0.1:8765`) to position the aircraft mesh.
+- Assets: `Udaan-Product4.gltf` (render), `Udaan-Product4.stl` (collision). A new CATIA→FBX/GLTF export with correct scale/pivots is recommended; Datasmith CAD import preferred if available.
+- To run the current cruise visualization: `./run_all.sh` then open `http://127.0.0.1:8080` (WS auto-connect to 127.0.0.1:8765).
+
+## Avionics & architecture (in-progress)
+- Planned avionics stack will be documented with an upcoming architecture diagram (drop into `docs/img/` when ready).
+- Draft roles: telemetry bridge (WS), flight-control NN (PPO/BC), classical controller warm-start, safety guards (G/geo), UE/3D viewer for HMI, and CATIA-derived assets for fidelity.
 
 ## RL Flight Control & Neural Net Trainer
 
