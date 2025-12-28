@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  flight-dynamics:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: flight-dynamics:latest
+    container_name: flight-dynamics
+    
+    # Enable GPU access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Mount volumes for development
+    volumes:
+      - ../cuda:/workspace/flight-dynamics/cuda
+      - ../python:/workspace/flight-dynamics/python
+      - ../notebooks:/workspace/flight-dynamics/notebooks
+    
+    # Interactive terminal
+    stdin_open: true
+    tty: true
+    
+    # Default command
+    command: bash
+    
+    # Environment
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+  # Jupyter notebook service
+  notebook:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: flight-dynamics:latest
+    container_name: flight-dynamics-notebook
+    
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    volumes:
+      - ../cuda:/workspace/flight-dynamics/cuda
+      - ../python:/workspace/flight-dynamics/python
+      - ../notebooks:/workspace/flight-dynamics/notebooks
+    
+    ports:
+      - "8888:8888"
+    
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    
+    command: jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root

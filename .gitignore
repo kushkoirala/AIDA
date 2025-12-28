@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-linux/
 .env
 
 # Node
@@ -11,8 +12,13 @@ node_modules/
 dist/
 .parcel-cache/
 .cache/
+.cupy/
+.matplotlib/
+.nv/
+.config/
 
-# Large/binary assets (kept local)
+# Large/binary assets (kept in assets/ folder, not tracked individually)
+*.bin
 *.gltf
 *.glb
 *.stl
@@ -21,9 +27,23 @@ dist/
 *.obj
 *.mtl
 
+# Training artifacts (large files)
+checkpoints/
+bc_data/
+logs/
+*.npz
+*.zip
+
+# Claude/AI tools
+.claude/
+
 # OS/editor
 .DS_Store
 *.swp
 *.swo
 .idea/
 .vscode/
+
+# Backup files
+*.backup*
+*.log

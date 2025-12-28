@@ -1,111 +1,199 @@
-# AIDA
-Autonomous Intelligent Decision Architecture — integration of LLMs and neural networks for autonomy.
+# AIDA - Autonomous Intelligent Decision Architecture
 
-![AIDA Aircraft](docs/img/aida-aircraft.png)<!-- drop your aircraft image at docs/img/aida-aircraft.png -->
+Integration of reinforcement learning and neural networks for autonomous fixed-wing aircraft control.
 
-## Minimal fixed-wing sim plan (scaffolding added)
-- Python core: NumPy/SciPy for forces + integration; Bullet/pybullet for ground/contact.
-- RL: Gymnasium API with SB3 (PPO) harness stubs in `scripts/`.
-- Safety: 4 g clamp, 40 A fuse clamp, geofence (parking-lot box), boundary termination.
-- Battery: simple SoC + internal-resistance sag model for thrust scaling.
-- Viewer: React/Three (not yet implemented here) consuming telemetry via WebSocket; glTF render mesh.
+## Overview
 
-## Layout
-- `aida_sim/env/flight_env.py` — Gymnasium shell, actions/obs, hooks to physics.
-- `aida_sim/dynamics/` — state, forces, integrator placeholders.
-- `aida_sim/platform/` — Bullet world and asset resolution placeholders.
-- `aida_sim/systems/battery.py` — SoC + Rint model.
-- `aida_sim/safety/guards.py` — clamps and limit checks.
-- `aida_sim/io/telemetry.py` — WebSocket telemetry stub.
-- `scripts/` — training and rollout stubs.
-- `viewer/` — notes for wiring glTF + HUD via WS.
+AIDA is a reinforcement learning framework for training autonomous flight control policies using:
+- **GPU-accelerated flight dynamics** (CUDA) for massive parallel simulation
+- **Curriculum learning** for progressive skill development
+- **Behavior cloning** with PPO fine-tuning for sample-efficient training
+- **Real-time telemetry visualization** for monitoring and debugging
 
-### Aerodynamic calibration
+### Supported Aircraft
+- **Cessna 172** - General aviation trainer (primary development platform)
+- **Udaan** - Custom fixed-wing UAV
 
-Use `scripts/calibrate_aero.py` to fit lift and pitching-moment coefficients
-from the trim tables (airspeed vs. α_trim / δ_e). The script prints best-fit
-values for `CL0`, `CL_alpha`, `Cm0`, `Cm_alpha`, and assumes a fixed
-`Cm_de = -1.0 / rad`. Update `aida_sim/dynamics/forces.py` with the reported
-numbers when new trim data is available.
+## Architecture
 
-### Propulsion model
+### Software Architecture
 
-`thrust_force` now models the 8.5″ prop pair with the conceptual-design
-assumptions (240 W available, prop efficiency 0.4, disk actuator theory). The
-resulting thrust automatically transitions from static to forward-flight
-conditions and is limited by available shaft power. Battery defaults in
-`aida_sim/systems/battery.py` match the 16‑cell, 2 Ah pack described in the
-propulsion study.
+![Software Architecture](docs/img/software_architecture.png)
 
-## Next steps
-1) Lock frames (world/body) and observation schema; finish dynamics integration.
-2) Add action→surface mapping, reward, and termination logic inside `flight_env.py`.
-3) Hook Bullet contact points for gear and friction; expose geofence.
-4) Spin up WS telemetry bridge; point viewer to it.
-5) Provide STEP file for collision/render conversion; expect collision mesh (Bullet) + glTF (viewer) in consistent frames. Assets present: `Udaan-Product4.stl` (collision), `Udaan-Product4.gltf` (render). Run `python scripts/prepare_assets.py` to copy into runtime locations.
+The system consists of six main packages:
+- **Training** - PPO algorithm, curriculum learning, behavior cloning, policy networks
+- **Simulation** - Gymnasium environment, GPU flight dynamics, reward shaping
+- **Visualization** - TensorBoard, 3D viewer, telemetry server
+- **Data & Storage** - Checkpoints, datasets, training logs
+- **Aircraft Models** - Aircraft configurations, aerodynamic coefficients, 3D models
+- **Configuration** - Environment parameters, training hyperparameters
 
-## Branch guide (Dec 2025)
-- `Core`: mainline for simulation, PPO training, and telemetry.
-- `viewer-unreal`: UE5 viewer work (Blueprint-based) and cruise-telemetry visualization.
-- `bc_experiment`: behavior-cloning and PPO warm-start experiments.
+### Neural Network Architecture
 
-## Training status (cruise)
-- Best cruise PPO+BC checkpoint: `checkpoints/runs/ppo_sb3_vec_seed2_t1M_cruisehold_bc.zip` (Level 0, cruise-hold). Eval ≈ 2548 ± 270 reward; success rate ~0.12–0.13.
-- Telemetry viewer (run_all.sh) currently uses that cruise checkpoint at curriculum level 0 for inspection.
-- Takeoff/climb curriculum and classical-controller warm-start are still WIP; success on full-profile is lower and not yet stable.
+![PPO Architecture](docs/img/ppo_architecture.png)
 
-## UE viewer status
-- UE branch: `viewer-unreal`. Project uses Blueprint free-camera pawn and telemetry-driven actor (WS at `ws://127.0.0.1:8765`) to position the aircraft mesh.
-- Assets: `Udaan-Product4.gltf` (render), `Udaan-Product4.stl` (collision). A new CATIA→FBX/GLTF export with correct scale/pivots is recommended; Datasmith CAD import preferred if available.
-- To run the current cruise visualization: `./run_all.sh` then open `http://127.0.0.1:8080` (WS auto-connect to 127.0.0.1:8765).
+**Actor-Critic PPO Network:**
+- **Input**: 12-dimensional state vector (position, velocity, attitude, angular rates)
+- **Policy Network**: 256 → 256 → 128 neurons with ReLU, outputs Gaussian parameters (μ, σ)
+- **Value Network**: 256 → 256 → 128 neurons with ReLU, outputs state value V(s)
+- **Output Actions**: Throttle, aileron, elevator, rudder (continuous, normalized [-1, 1])
+- **Total Parameters**: ~270k
 
-## Avionics & architecture (in-progress)
-- Planned avionics stack will be documented with an upcoming architecture diagram (drop into `docs/img/` when ready).
-- Draft roles: telemetry bridge (WS), flight-control NN (PPO/BC), classical controller warm-start, safety guards (G/geo), UE/3D viewer for HMI, and CATIA-derived assets for fidelity.
+## Quick Start
 
-## RL Flight Control & Neural Net Trainer
+### Prerequisites
+- Python 3.10+
+- CUDA-capable GPU (recommended)
+- WSL2 (for Windows) or Linux
 
-### New Features (Dec 2025)
-- **RL Environment:** `aida_sim/env/flight_env_rl.py`
-  - 16-dim normalized observation space
-  - Dense reward shaping for stable PPO training
-  - Randomized spawn for exploration
-  - Flight envelope constraints: V_stall=11 m/s, V_max=25 m/s, throttle 25-65%
-- **PPO Trainer:** `scripts/train_ppo_flight.py` (`--task cruise|takeoff`)
-  - Actor-Critic neural network (137k params)
-  - Monte Carlo rollouts with GAE advantage estimation
-  - Apple Silicon MPS GPU acceleration
-  - Checkpointing and evaluation
-- **Telemetry Bridge:** `scripts/run_sim_with_telemetry.py`
-  - WebSocket server for real-time state streaming
+### Installation
 
-### Flight Envelope Analysis
-- Stall speed: ~11 m/s
-- Max safe speed: ~25 m/s (to stay under 3G)
-- Safe throttle range: 25-65% for level flight
-- G-limits by speed/alpha:
-  - 15 m/s @ 10° alpha → 1.62G
-  - 20 m/s @ 5° alpha → 0.96G
-  - 25 m/s @ 10° alpha → 3.0G
-
-### RL Training Workflow
 ```bash
-cd /Users/kka/AIDA
-export PYTHONPATH=$PYTHONPATH:$(pwd)
-python scripts/train_ppo_flight.py --timesteps 500000 --device mps
-# Takeoff-specific curriculum
-python scripts/train_ppo_flight.py --task takeoff --timesteps 300000 --device mps
+cd /home/AIDA
+python3 -m venv .venv-linux
+source .venv-linux/bin/activate
+pip install -r requirements.txt
 ```
 
-### Example PPO Results
-- 327 FPS training on Apple Silicon GPU
-- Mean reward improves with training
-- Agent learns to stay airborne and approach target zone
+### Training
 
-## Local build/test workflow
-- One-shot setup & sync: `./scripts/dev_local.sh`
-	- Creates/uses `.venv`, installs `requirements.txt`, runs `scripts/prepare_assets.py`.
-- Rollout stub: `python scripts/rollout.py`
-- PPO stub: `python scripts/train_ppo.py`
-- Telemetry WS (placeholder): `python -m aida_sim.io.telemetry` (wire `state_fn` later)
-- Viewer loads `viewer/public/Udaan-Product4.gltf` (already copied by prep script)
+```bash
+# Set environment variables (WSL)
+export MPLCONFIGDIR=/tmp/matplotlib-config
+export CUPY_CACHE_DIR=/tmp/cupy-cache
+
+# Train with curriculum learning
+python scripts/train_cessna172_curriculum.py --start-phase 1
+```
+
+### Visualization
+
+```bash
+# Start telemetry viewer
+./scripts/utils/run_cessna172_viewer.sh
+
+# Access:
+# - 3D Viewer: http://localhost:8000
+# - TensorBoard: http://localhost:6006
+```
+
+## Project Structure
+
+```
+├── aida_sim/              # Core simulation package
+│   ├── env/               # RL environments (Gymnasium)
+│   ├── dynamics/          # Flight physics
+│   └── systems/           # Aircraft subsystems
+├── assets/                # 3D models and research papers
+├── checkpoints/           # Trained model weights
+├── config/                # Configuration files
+├── data/                  # Training data and visualizations
+├── docs/                  # Documentation
+├── gpu-flight-dynamics/   # CUDA parallel simulator
+├── scripts/               # Training and utility scripts
+└── viewer/                # 3D web visualization
+```
+
+See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed layout.
+
+## Training Methodology
+
+### Curriculum Learning
+
+Progressive training through flight phases:
+
+| Phase | Task | Description | Target |
+|-------|------|-------------|--------|
+| 1 | Ground Roll | Accelerate on runway, maintain centerline | Reach rotation speed |
+| 2 | Rotation | Pitch up to liftoff attitude | Positive climb rate |
+| 3 | Initial Climb | Establish stable climb | 50 ft AGL |
+| 4 | Full Climb | Climb to cruise altitude | Target altitude |
+| 5 | Cruise | Level flight maintenance | Altitude/speed hold |
+
+### Reward Shaping
+
+Each phase uses task-specific reward functions:
+- **Ground Roll**: Speed progression, centerline tracking, pitch control, heading maintenance
+- **Rotation**: Pitch rate, altitude gain, airspeed maintenance
+- **Climb**: Climb rate, heading, wings level
+- **Cruise**: Altitude hold, speed hold, attitude stability
+
+## Key Features
+
+### High-Performance Simulation
+- **GPU acceleration**: CuPy/CUDA for flight dynamics (1000+ parallel instances)
+- **Parallel environments**: 4-16 SubprocVecEnv for PPO training
+- **Real-time visualization**: WebSocket telemetry at 20Hz
+
+### Flight Dynamics
+- 6-DOF rigid body dynamics
+- Aerodynamic force/moment modeling with stability derivatives
+- Ground contact and friction modeling
+- Configurable aircraft parameters
+
+### Safety Constraints
+- Flight envelope protection (stall speed, max speed, G-limits)
+- Attitude limits (pitch, roll, yaw rate)
+- Geofencing and boundary detection
+- Graceful termination handling
+
+## Development
+
+### Environment API
+
+```python
+from aida_sim.env.flight_env_cessna172 import Cessna172Env
+
+env = Cessna172Env(task='ground_roll')
+obs, info = env.reset()
+
+for _ in range(1000):
+    action = policy(obs)  # [throttle, aileron, elevator, rudder]
+    obs, reward, terminated, truncated, info = env.step(action)
+    if terminated or truncated:
+        break
+```
+
+### Training Scripts
+
+```bash
+# Curriculum learning (recommended)
+python scripts/train_cessna172_curriculum.py --start-phase 1
+
+# Single task training
+python scripts/train_cessna172_ppo.py --task ground_roll --timesteps 500000
+
+# Evaluation
+python scripts/test_phase1_ground_roll.py --checkpoint path/to/model.zip
+```
+
+### Adding New Aircraft
+
+1. Create aircraft configuration in `gpu-flight-dynamics/python/aircraft_database.py`
+2. Add aerodynamic coefficients and mass properties
+3. Create environment wrapper in `aida_sim/env/`
+4. Add 3D model (GLTF) to `assets/aircraft/`
+
+## Documentation
+
+- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Directory layout
+- [docs/PHASE1_TRAINING_SESSION_SUMMARY.md](docs/PHASE1_TRAINING_SESSION_SUMMARY.md) - Latest training results
+- [docs/session_summaries/](docs/session_summaries/) - Historical session notes
+- [docs/dev/](docs/dev/) - Development documentation
+
+## Requirements
+
+Key dependencies (see [requirements.txt](requirements.txt)):
+- `stable-baselines3` - PPO implementation
+- `gymnasium` - RL environment API
+- `cupy-cuda12x` - GPU-accelerated NumPy
+- `torch` - Neural network training
+- `tensorboard` - Training visualization
+
+## License
+
+Internal research project.
+
+---
+
+**Last Updated**: December 27, 2024

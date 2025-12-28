@@ -1,0 +1,12 @@
+{
+  "runway": {
+    "start": [0.0, 0.0, 0.3],
+    "heading": 0.0,
+    "length": 50.0,
+    "width": 3.05
+  },
+  "property": {
+    "center": [0.0, 0.0],
+    "size": 304.8
+  }
+}

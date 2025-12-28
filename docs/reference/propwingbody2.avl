@@ -1,0 +1,126 @@
+Udaan
+0.0                      Mach
+0     0     0.0          iYsym  iZsym  Zsym
+745.63 16.8  54          Sref   Cref   Bref   reference area, chord, span
+6.52 0.0   0.0          Xref   Yref   Zref   moment reference location (arb.)
+0.020                    CDoref
+#
+#==============================================================
+#
+SURFACE
+WING
+16.8  1.0  20  -2.0  !  Nchord   Cspace   Nspan  Sspace
+#
+# reflect image wing about x=0 plane
+YDUPLICATE
+     0.00000 
+#
+# twist angle bias for whole surface
+ANGLE
+     0.00000    
+#
+# x,y,z bias for whole surface
+TRANSLATE
+    0.00000     0.00000     0.00000
+#--------------------------------------------------------------
+#    Xle         Yle         Zle         chord       angle   Nspan  Sspace
+SECTION
+     0.00000     0.00000     0.00000     24         0.0000   7.5      0.25
+AFIL
+naca4418.dat
+#-----------------------
+SECTION
+     0.00000       7.5        0.0         24         0.000   4.923     -2.60
+AFIL
+naca4418.dat
+#-----------------------
+SECTION
+     1.0914       12.423        0.00        9.2316    0.000   14.577     -2.25
+AFIL
+naca4418.dat
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+aileron  -1.0   0.3    0.0 0.0 0.0  -1.0
+#-----------------------
+SECTION
+     4.323       27        0.00        6.0    0.000   0     -2.25
+AFIL
+naca4418.dat
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+aileron  -1.0   0.3    0.0 0.0 0.0  -1.0
+#==============================================================
+#
+SURFACE
+Horizontal tail
+#Nchordwise  Cspace   Nspanwise   Sspace
+ 5.7           1.0      21.6           1.0
+#
+YDUPLICATE
+0.0
+#
+TRANSLATE
+43.1 0.0 7.1
+#--------------------------------------------------------------
+SECTION
+     0.000     0.00000     0.00000     5.7   0.000   0.  0.0
+
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+elevator 1.0    0.5     0.0 1.0 0.0  1.0
+#-----------------------
+SECTION
+     0.0        10.8         0.00000     5.7         0.000  0.0
+
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+elevator 1.0    0.5     0.0 1.0 0.0  1.0
+#
+#==============================================================
+#
+SURFACE
+Vertical tail
+5  1.0  10  0.5  ! Nchord   Cspace
+TRANSLATE
+    43.1     10.8   0.00
+#--------------------------------------------------------------
+SECTION
+    0.0   0.00000    0.00000     5.70000     0.000   0.0   0.0
+
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+rudder   1.0    0.5     0.0 0.0 1.0  1.0
+#-----------------------
+SECTION
+    0.0   0.00000     7.1     5.7     0.000  0.0   0.0
+
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+rudder   1.0    0.5     0.0 0.0 1.0  1.0
+#-----------------------
+
+#==============================================================
+
+SURFACE
+Vertical tail
+5  1.0  10  0.5  ! Nchord   Cspace
+TRANSLATE
+    43.1     -10.8        0.000
+#--------------------------------------------------------------
+SECTION
+    0.0   0.00000    0.00000    5.7     0.000    0.0  0.0
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+rudder   1.0    0.5     0.0 0.0 1.0  1.0
+#-----------------------
+SECTION
+    0.0   0.00000     7.1     5.7     0.000   0   0.0
+
+#Cname   Cgain  Xhinge  HingeVec     SgnDup
+CONTROL
+rudder   1.0    0.5     0.0 0.0 1.0  1.0
+#-----------------------
+
+
+
+
