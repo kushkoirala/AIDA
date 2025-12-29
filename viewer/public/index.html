@@ -273,19 +273,27 @@
         propAnimations.push({ mesh, axis: spinAxis });
       };
 
-      loader.load('Udaan-Product4.gltf', (gltf) => {
+      loader.load('Cessna172.gltf', (gltf) => {
         model = gltf.scene;
         model.updateMatrixWorld(true);
         const bbox = new THREE.Box3().setFromObject(model);
         bbox.getCenter(bboxCenter);
-        modelPlacementOffset.set(-bbox.min.x, -bbox.min.y, -bboxCenter.z);
-        model.position.copy(modelPlacementOffset);
+
+        // Cessna172 model orientation fix:
+        // Model native: Y=nose, X=right wing, Z=up
+        // Viewer: X=runway, Y=up, Z=lateral
+        // Final rotation: 90° about X, -90° about Z (order XZY)
+        model.rotation.order = 'XZY';
+        model.rotation.x = Math.PI / 2;   // 90° roll
+        model.rotation.z = -Math.PI / 2;  // -90° pitch
+        model.rotation.y = 0;
+        model.position.set(0, 0.036, 0);  // Place wheels on ground
 
         let propCount = 0;
         const propSet = new Set();
         model.traverse((obj) => {
           if (!obj.name || !obj.isMesh) return;
-          if (obj.name.startsWith('Propellor') && !propSet.has(obj.uuid)) {
+          if (obj.name.toLowerCase().includes('propel') && !propSet.has(obj.uuid)) {
             propSet.add(obj.uuid);
             preparePropSpinner(obj, new THREE.Vector3(1, 0, 0));
             const anim = propAnimations[propAnimations.length - 1];
