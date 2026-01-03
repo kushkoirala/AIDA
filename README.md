@@ -105,7 +105,7 @@ an expert demonstrator for imitation learning and a safety fallback for hybrid a
 
 ![Cessna 172 Traffic Pattern](docs/img/172Roll.png)
 
-*Cessna 172 executing a banked turn during the traffic pattern*
+*Cessna 172 rolling down the runway. 
 
 **Video**: [Takeoff172.mp4](docs/img/Takeoff172.mp4) - Cessna 172 takeoff and climb sequence
 
