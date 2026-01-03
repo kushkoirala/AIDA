@@ -101,6 +101,14 @@ See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed layout.
 A fully autonomous classical controller that flies complete traffic patterns, serving as
 an expert demonstrator for imitation learning and a safety fallback for hybrid architectures.
 
+### 3D Visualization
+
+![Cessna 172 Traffic Pattern](docs/img/172Roll.png)
+
+*Cessna 172 executing a banked turn during the traffic pattern*
+
+**Video**: [Takeoff172.mp4](docs/img/Takeoff172.mp4) - Cessna 172 takeoff and climb sequence
+
 ### Traffic Pattern
 
 ```
