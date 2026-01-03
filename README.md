@@ -96,6 +96,82 @@ python scripts/train_cessna172_curriculum.py --start-phase 1
 
 See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed layout.
 
+## Classical Controller (Expert Demonstrator)
+
+A fully autonomous classical controller that flies complete traffic patterns, serving as
+an expert demonstrator for imitation learning and a safety fallback for hybrid architectures.
+
+### Traffic Pattern
+
+```
+    UPWIND (N) ──────────────────► CROSSWIND TURN
+         ▲                                │
+         │                                ▼
+      RUNWAY                         CROSSWIND (E)
+         │                                │
+         ▲                                ▼
+    FINAL ◄────── BASE TURN ◄────── DOWNWIND TURN
+         │                                │
+    APPROACH                         DOWNWIND (S)
+         │
+      LANDING
+```
+
+### Running the Traffic Pattern Simulation
+
+```bash
+# Start the simulation with 3D viewer
+cd /home/AIDA
+source .venv-linux/bin/activate
+
+# Start HTTP server for viewer (in one terminal)
+cd viewer/public && python -m http.server 8000
+
+# Start simulation (in another terminal)
+python scripts/run_traffic_pattern_with_telemetry.py
+```
+
+Open browser to `http://<your-ip>:8000` for the 3D visualization.
+
+### Viewer Controls
+
+- **Pause/Resume**: Freeze simulation physics
+- **Restart**: Reset to ground roll
+- **Jump to Phase**: Skip to any flight phase
+- **Follow**: Camera follows aircraft
+- **Reset View**: Return to default camera position
+
+### 15 Flight Phases
+
+| Phase | Description |
+|-------|-------------|
+| GROUND_ROLL | Accelerating on runway |
+| ROTATION | Pitching up for liftoff |
+| INITIAL_CLIMB | Immediate post-liftoff |
+| CLIMB | Climbing to cruise altitude |
+| CRUISE_UPWIND | Level flight heading north |
+| TURN_CROSSWIND | 90° right turn |
+| CRUISE_CROSSWIND | Level flight heading east |
+| TURN_DOWNWIND | 90° right turn |
+| CRUISE_DOWNWIND | Level flight heading south |
+| TURN_BASE | 90° right turn, begin descent |
+| DESCENT_BASE | Descending on base leg |
+| TURN_FINAL | Aligning with runway |
+| APPROACH | Final approach with glideslope |
+| LANDING | Flare and touchdown |
+| LANDED | Mission complete |
+
+### Hybrid Architecture (Future)
+
+The classical controller enables a hybrid NN/classical architecture:
+
+```python
+if safety_monitor.is_safe(state):
+    action = neural_net_policy(state)
+else:
+    action = classical_controller.compute_action(state)
+```
+
 ## Training Methodology
 
 ### Curriculum Learning
@@ -196,4 +272,4 @@ Internal research project.
 
 ---
 
-**Last Updated**: December 27, 2024
+**Last Updated**: January 2, 2025

@@ -2,11 +2,27 @@ import asyncio
 import json
 import time
 from typing import Callable, Awaitable
+from collections import deque
 
 import numpy as np
 import websockets
 
+# Global command queue for receiving commands from viewer
+command_queue = deque(maxlen=100)
+
+def get_command():
+    """Get a command from the queue (non-blocking). Returns None if empty."""
+    try:
+        return command_queue.popleft()
+    except IndexError:
+        return None
+
+def peek_commands():
+    """Peek at all commands without removing them."""
+    return list(command_queue)
+
 # Minimal telemetry broadcaster over WebSocket. Adds heartbeat and sim_time if missing.
+# Also handles incoming commands from viewer (restart, set_phase, etc.)
 async def telemetry_server(
     state_fn: Callable[[], dict],
     host: str = "127.0.0.1",
@@ -22,20 +38,52 @@ async def telemetry_server(
             on_client_connect()
         heartbeat = 0
         start = time.monotonic()
-        while True:
-            payload = dict(state_fn())
-            heartbeat += 1
-            payload.setdefault("heartbeat", heartbeat)
-            payload.setdefault("sim_time", time.monotonic() - start)
-            payload.setdefault("mode", "server")
+
+        # Task to send telemetry
+        async def send_telemetry():
+            nonlocal heartbeat
+            while True:
+                payload = dict(state_fn())
+                heartbeat += 1
+                payload.setdefault("heartbeat", heartbeat)
+                payload.setdefault("sim_time", time.monotonic() - start)
+                payload.setdefault("mode", "server")
+                try:
+                    await websocket.send(json.dumps(payload))
+                except websockets.ConnectionClosed:
+                    break
+                await asyncio.sleep(interval)
+
+        # Task to receive commands
+        async def receive_commands():
             try:
-                await websocket.send(json.dumps(payload))
+                async for message in websocket:
+                    try:
+                        cmd = json.loads(message)
+                        print(f"[telemetry_server] Received command: {cmd}")
+                        command_queue.append(cmd)
+                    except json.JSONDecodeError:
+                        print(f"[telemetry_server] Invalid JSON: {message}")
             except websockets.ConnectionClosed:
-                print(f"[telemetry_server] Client disconnected: {client}")
-                if on_client_disconnect:
-                    on_client_disconnect()
-                break
-            await asyncio.sleep(interval)
+                pass
+
+        # Run both tasks concurrently
+        send_task = asyncio.create_task(send_telemetry())
+        receive_task = asyncio.create_task(receive_commands())
+
+        try:
+            # Wait until one task completes (usually due to disconnect)
+            done, pending = await asyncio.wait(
+                [send_task, receive_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            # Cancel pending tasks
+            for task in pending:
+                task.cancel()
+        finally:
+            print(f"[telemetry_server] Client disconnected: {client}")
+            if on_client_disconnect:
+                on_client_disconnect()
 
     print(f"[telemetry_server] About to start websockets.serve on {host}:{port}")
     try:

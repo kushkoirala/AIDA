@@ -69,7 +69,12 @@ def update_telemetry_from_obs(obs, action, info):
     p, q, r = obs[9], obs[10], obs[11]
 
     # Position (NED coordinates)
-    shared_state["position"] = [float(x), float(y), float(z)]
+    # Transform position from simulation to viewer coordinates
+    # Simulation: runway_start = [-500, 0, 0], viewer expects [0, 0, 0]
+    viewer_x = x + 500.0  # Shift so runway starts at x=0
+    viewer_y = y          # Y stays the same (lateral)
+    viewer_z = -z         # NED Z is down, viewer Z is up
+    shared_state["position"] = [float(viewer_x), float(viewer_y), float(viewer_z)]
 
     # Orientation (convert Euler to quaternion)
     quat = euler_to_quaternion(phi, theta, psi)
@@ -102,6 +107,38 @@ def update_telemetry_from_obs(obs, action, info):
     # Load factor (approximate from vertical acceleration)
     # For ground roll, ~1.0
     shared_state["load_factor"] = 1.0
+
+    # Euler angles in degrees for attitude indicator
+    shared_state["roll_deg"] = float(np.rad2deg(phi))
+    shared_state["pitch_deg"] = float(np.rad2deg(theta))
+    shared_state["heading_deg"] = float(np.rad2deg(psi)) % 360.0
+
+    # Angle of attack (alpha) - calculated from body velocities
+    # AoA = atan2(w, u) where w=down velocity, u=forward velocity
+    if abs(u) > 0.1:  # Avoid division issues at low speed
+        alpha_rad = math.atan2(w, u)
+        shared_state["alpha_deg"] = float(np.rad2deg(alpha_rad))
+    else:
+        shared_state["alpha_deg"] = 0.0
+
+    # Airspeed in knots
+    airspeed_mps = math.sqrt(u**2 + v**2 + w**2)
+    shared_state["airspeed_kts"] = float(airspeed_mps * 1.94384)
+
+    # Altitude in feet
+    altitude_m = -z  # NED: Z is down, altitude is up
+    shared_state["altitude_ft"] = float(altitude_m * 3.28084)
+
+    # Vertical speed in fpm
+    # Transform body velocity to NED frame to get true vertical speed
+    # The NED z-velocity (z_dot) can be computed from body velocities:
+    # z_dot = -u*sin(theta) + v*cos(theta)*sin(phi) + w*cos(theta)*cos(phi)
+    # Negative z_dot = climb rate (positive when climbing)
+    z_dot = (-u * math.sin(theta) +
+             v * math.cos(theta) * math.sin(phi) +
+             w * math.cos(theta) * math.cos(phi))
+    vertical_speed_mps = -z_dot  # Positive when climbing (NED z is down)
+    shared_state["vertical_speed_fpm"] = float(vertical_speed_mps * 196.85)
 
 
 def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=500):

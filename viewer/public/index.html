@@ -17,7 +17,124 @@
       --ok: #34d399;
     }
     body, html { margin: 0; padding: 0; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Segoe UI", "SF Pro Display", system-ui, sans-serif; }
-    #hud { position: absolute; top: 12px; left: 12px; background: var(--panel); padding: 12px 14px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); min-width: 280px; }
+
+    #compass-container {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 8px 12px 8px 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      text-align: center;
+    }
+    /* Curved compass arc wrapping around top of attitude indicator */
+    #compass-arc {
+      position: relative;
+      width: 200px;
+      height: 35px;
+      margin: 0 auto 0 auto;
+      overflow: visible;
+    }
+    #compass-arc-inner {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+    }
+    .arc-mark {
+      position: absolute;
+      font-size: 9px;
+      color: var(--muted);
+      text-align: center;
+      white-space: nowrap;
+    }
+    .arc-mark span {
+      display: block;
+      font-size: 8px;
+    }
+    .arc-mark.cardinal {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .arc-mark.cardinal span {
+      font-size: 10px;
+    }
+    .arc-mark.semi {
+      color: var(--text);
+    }
+    .arc-mark .arc-tick {
+      width: 1px;
+      height: 4px;
+      background: var(--muted);
+      margin: 0 auto 1px auto;
+    }
+    .arc-mark.cardinal .arc-tick {
+      height: 6px;
+      width: 2px;
+      background: var(--accent);
+    }
+    .arc-mark.semi .arc-tick {
+      height: 5px;
+    }
+    /* Center pointer for current heading - triangle pointing up */
+    #compass-arc-pointer {
+      position: absolute;
+      bottom: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-bottom: 8px solid var(--accent);
+      z-index: 10;
+    }
+    #phase-display {
+      font-size: 11px;
+      color: var(--warn);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 4px;
+    }
+    /* Hide old compass elements */
+    #compass-tape, #heading-value { display: none; }
+
+    #flight-info {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 10px 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      display: flex;
+      gap: 20px;
+    }
+    .flight-param { text-align: center; }
+    .flight-param .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .flight-param .value { font-size: 18px; font-weight: 600; color: var(--text); }
+    .flight-param .unit { font-size: 10px; color: var(--muted); }
+
+    #hud {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: var(--panel);
+      padding: 12px 14px;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      min-width: 260px;
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+    #hud.hidden {
+      transform: translateX(-320px);
+      opacity: 0;
+      pointer-events: none;
+    }
     #hud .line { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
     #hud .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
     #hud .controls { display: flex; gap: 8px; margin: 8px 0 10px; }
@@ -26,68 +143,264 @@
     #hud button:active { background: #1d293c; }
     #hud code { background: rgba(255,255,255,0.06); padding: 2px 4px; border-radius: 4px; }
     #status { font-size: 13px; margin-bottom: 8px; }
-  #grid { display: grid; grid-template-columns: 140px 1fr; gap: 6px 10px; font-size: 13px; }
-  .grid-label { color: var(--muted); }
-  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px rgba(0,0,0,0.35); }
+    #grid { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; font-size: 13px; }
+    .grid-label { color: var(--muted); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; box-shadow: 0 0 10px rgba(0,0,0,0.35); }
     .disconnected { background: var(--danger); }
     .connected { background: var(--ok); }
-  .warn { background: var(--warn); }
-  .stale { background: var(--warn); }
-  .idle { background: var(--muted); }
-  .slider-block { margin-top: 10px; }
-  .slider-block input[type="range"] { width: 100%; }
-  .slider-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-  .slider-status { font-size: 12px; color: var(--text); }
-  a { color: #8ab4f8; }
-  .alert { color: var(--warn); font-weight: 600; }
+    .warn { background: var(--warn); }
+    .stale { background: var(--warn); }
+    .idle { background: var(--muted); }
+    a { color: #8ab4f8; }
+    .alert { color: var(--warn); font-weight: 600; }
+
+    #toggle-telemetry {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid #28364c;
+      border-radius: 6px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      z-index: 100;
+      transition: left 0.3s ease;
+    }
+    #toggle-telemetry:hover { background: #26344a; }
+    #toggle-telemetry.panel-visible { left: 290px; }
+
+    /* Attitude Indicator (Artificial Horizon) - positioned in compass container */
+    #attitude-indicator {
+      position: relative;
+      width: 160px;
+      height: 160px;
+      border-radius: 50%;
+      background: linear-gradient(to bottom, #3b82f6 0%, #3b82f6 50%, #92400e 50%, #92400e 100%);
+      border: 3px solid #444;
+      box-shadow: 0 0 15px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.3);
+      overflow: hidden;
+      margin: 0 auto 8px auto;
+    }
+    #attitude-horizon {
+      position: absolute;
+      width: 300%;
+      height: 300%;
+      left: -100%;
+      top: -100%;
+      background: linear-gradient(to bottom,
+        #60a5fa 0%, #3b82f6 45%,
+        #fff 49.5%, #fff 50.5%,
+        #b45309 55%, #92400e 100%);
+      transform-origin: center center;
+      transition: transform 0.1s ease-out;
+    }
+    #attitude-overlay {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      top: 0;
+      left: 0;
+    }
+    /* Pitch ladder lines */
+    .pitch-line {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      height: 2px;
+      background: #fff;
+    }
+    .pitch-line.major { width: 60px; }
+    .pitch-line.minor { width: 30px; }
+    .pitch-label {
+      position: absolute;
+      font-size: 10px;
+      color: #fff;
+      font-weight: bold;
+      text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+    }
+    /* Fixed aircraft reference (center wings) */
+    #attitude-wings {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .wing-marker {
+      position: absolute;
+      top: 50%;
+      height: 3px;
+      background: #fbbf24;
+      border: 1px solid #000;
+    }
+    .wing-marker.left { left: 15px; width: 30px; transform: translateY(-50%); }
+    .wing-marker.right { right: 15px; width: 30px; transform: translateY(-50%); }
+    .wing-marker.center {
+      left: 50%;
+      width: 10px;
+      height: 10px;
+      background: #fbbf24;
+      border: 2px solid #000;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+    /* Roll indicator arc at top */
+    #roll-indicator {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 140px;
+      height: 20px;
+    }
+    .roll-mark {
+      position: absolute;
+      width: 2px;
+      height: 8px;
+      background: #fff;
+      transform-origin: bottom center;
+    }
+    .roll-mark.major { height: 12px; }
+    #roll-pointer {
+      position: absolute;
+      top: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 8px solid #fbbf24;
+      transition: transform 0.1s ease-out;
+    }
+    /* V-Speed display at bottom of attitude indicator */
+    #vs-center {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.75);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    #vs-center .label { font-size: 8px; color: var(--muted); margin-right: 3px; }
+    /* Heading display at top of attitude indicator */
+    #heading-center {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.75);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 1px;
+    }
   </style>
 </head>
 <body>
+  <button id="toggle-telemetry" class="panel-visible">Hide</button>
+
+  <div id="compass-container">
+    <!-- Curved compass arc above attitude indicator -->
+    <div id="compass-arc">
+      <div id="compass-arc-inner"></div>
+      <div id="compass-arc-pointer"></div>
+    </div>
+    <!-- Attitude Indicator (Artificial Horizon) with heading -->
+    <div id="attitude-indicator">
+      <div id="attitude-horizon"></div>
+      <div id="attitude-overlay"></div>
+      <div id="attitude-wings">
+        <div class="wing-marker left"></div>
+        <div class="wing-marker center"></div>
+        <div class="wing-marker right"></div>
+      </div>
+      <div id="roll-pointer"></div>
+      <div id="heading-center">000°</div>
+      <div id="vs-center"><span class="label">VS</span><span id="vs-center-value">0</span> fpm</div>
+    </div>
+    <div id="phase-display">INITIALIZING</div>
+    <!-- Hidden old elements for compatibility -->
+    <div id="compass-tape" style="display:none;">
+      <div id="compass-tape-inner"></div>
+      <div id="compass-pointer"></div>
+    </div>
+    <div id="heading-value" style="display:none;">000</div>
+  </div>
+
+  <div id="flight-info">
+    <div class="flight-param">
+      <div class="label">ALT</div>
+      <div class="value" id="alt-value">0</div>
+      <div class="unit">ft</div>
+    </div>
+    <div class="flight-param">
+      <div class="label">SPD</div>
+      <div class="value" id="spd-value">0</div>
+      <div class="unit">kts</div>
+    </div>
+    <div class="flight-param">
+      <div class="label">AoA</div>
+      <div class="value" id="aoa-value">0</div>
+      <div class="unit">deg</div>
+    </div>
+  </div>
+
   <div id="hud">
     <div class="line">
       <span class="label">Telemetry</span>
-      <code id="ws-url">ws://localhost:8765</code>
+      <code id="ws-url">ws://100.79.9.48:8765</code>
       <span id="conn-dot" class="dot disconnected" title="WebSocket status"></span>
     </div>
     <div class="line">
       <span class="label">Heartbeat</span>
-      <span id="heartbeat">—</span>
-      <span id="hb-age" style="color: var(--muted);">age —</span>
+      <span id="heartbeat">-</span>
+      <span id="hb-age" style="color: var(--muted);">age -</span>
       <span id="hb-dot" class="dot idle" title="Heartbeat freshness"></span>
-    </div>
-    <div class="line">
-      <span class="label">Units</span>
-      <span id="unitLabel">—</span>
     </div>
     <div class="controls">
       <button id="pauseBtn">Pause</button>
       <button id="resetBtn">Reset View</button>
+      <button id="followBtn">Follow</button>
     </div>
-    <div id="status">Status: waiting for telemetry…</div>
+    <div class="controls" style="margin-top: 4px; border-top: 1px solid #333; padding-top: 8px;">
+      <span class="label" style="margin-right: 8px;">Sim:</span>
+      <button id="restartBtn" title="Restart from ground roll">Restart</button>
+      <select id="phaseSelect" style="background: #1f2a3d; color: var(--text); border: 1px solid #28364c; border-radius: 6px; padding: 5px 8px; font-size: 12px;">
+        <option value="">Jump to Phase...</option>
+        <option value="GROUND_ROLL">Ground Roll</option>
+        <option value="CLIMB">Climb</option>
+        <option value="CRUISE_UPWIND">Cruise Upwind</option>
+        <option value="TURN_CROSSWIND">Turn Crosswind</option>
+        <option value="CRUISE_DOWNWIND">Cruise Downwind</option>
+        <option value="TURN_BASE">Turn Base</option>
+        <option value="APPROACH">Approach</option>
+      </select>
+    </div>
+    <div id="status">Status: waiting for telemetry</div>
     <div id="grid">
-      <div class="grid-label">Position (ft)</div><div id="pos">—</div>
-      <div class="grid-label">Velocity (ft/s)</div><div id="vel">—</div>
-      <div class="grid-label">Rates (deg/s)</div><div id="rates">—</div>
-      <div class="grid-label">Quaternion (w,x,y,z)</div><div id="quat">—</div>
-      <div class="grid-label">Surfaces (deg)</div><div id="surfaces">—</div>
-      <div class="grid-label">Throttle</div><div id="throttle">—</div>
-      <div class="grid-label">SOC / V</div><div id="battery">—</div>
-      <div class="grid-label">Load factor</div><div id="load">—</div>
-      <div class="grid-label">Ceiling</div><div id="ceiling">—</div>
-      <div class="grid-label">Mode</div><div id="mode">—</div>
-      <div class="grid-label">Sim time (s)</div><div id="simtime">—</div>
-    </div>
-    <div class="slider-block">
-      <div class="line">
-        <label class="slider-label">
-          <input type="checkbox" id="throttleManual" />
-          Manual throttle
-        </label>
-        <span class="slider-status" id="throttleSliderValue">0%</span>
-      </div>
-      <input type="range" id="throttleSlider" min="0" max="100" value="0" disabled />
+      <div class="grid-label">X<sub>N</sub>, Y<sub>E</sub>, h (m)</div><div id="pos">-</div>
+      <div class="grid-label">V<sub>body</sub> u, v, w (m/s)</div><div id="vel">-</div>
+      <div class="grid-label">ω p, q, r (°/s)</div><div id="rates">-</div>
+      <div class="grid-label">δ<sub>a</sub>, δ<sub>e</sub>, δ<sub>r</sub></div><div id="surfaces">-</div>
+      <div class="grid-label">δ<sub>T</sub> (Throttle)</div><div id="throttle">-</div>
+      <div class="grid-label">δ<sub>f</sub> / δ<sub>sp</sub></div><div id="flaps">-</div>
+      <div class="grid-label">Ceiling</div><div id="ceiling">-</div>
+      <div class="grid-label">Sim time (s)</div><div id="simtime">-</div>
     </div>
   </div>
+
   <canvas id="c"></canvas>
 
   <script type="importmap">
@@ -103,7 +416,6 @@
     import * as THREE from 'three';
     import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-    import { fetchRunwayConfig } from './fetchRunwayConfig.js';
 
     const canvas = document.getElementById('c');
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -112,92 +424,196 @@
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1117);
-    const SIM_TO_VIEWER_QUAT = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2, 0, 0));
-    const SIM_TO_VIEWER_INV = SIM_TO_VIEWER_QUAT.clone().invert();
-    const CEILING_FT = 500;
-    const CEILING_WARN_FT = 450;
+
+    // NED to Three.js coordinate system:
+    // Position: viewer(x,y,z) = (ned_y, -ned_z, -ned_x)
+    // Quaternion: qViewer(x,y,z,w) = (ned_qy, -ned_qz, -ned_qx, ned_w)
+
+    const CEILING_FT = 8000;
+    const CEILING_WARN_FT = 7500;
     const CEILING_M = CEILING_FT * 0.3048;
 
-    // Load config and initialize scene
-    let RUNWAY_START, CAMERA_OFFSET, camera, initialCamera, controls, initialTarget;
-    let runwayLength, runwayWidth, propertySize;
+    const AREA_LENGTH = 10000;
+    const AREA_WIDTH = 5000;
+
+    function initCompassTape() {
+      const tape = document.getElementById('compass-tape-inner');
+      const cardinals = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+      for (let deg = -180; deg <= 540; deg += 10) {
+        const mark = document.createElement('div');
+        mark.className = 'compass-mark' + (deg % 90 === 0 ? ' cardinal' : '');
+        const normalizedDeg = ((deg % 360) + 360) % 360;
+        const label = cardinals[normalizedDeg] || (deg % 30 === 0 ? normalizedDeg : '');
+        mark.innerHTML = '<div class="tick"></div>' + label;
+        tape.appendChild(mark);
+      }
+    }
+    initCompassTape();
+
+    // Curved compass arc - shows heading marks in an arc above the attitude indicator
+    const compassArcMarks = [];
+    const COMPASS_ARC_RADIUS = 90; // px from center point (below the arc div)
+    const COMPASS_ARC_SPAN = 100; // degrees visible on arc (±50° from center)
+
+    function initCompassArc() {
+      const arcInner = document.getElementById('compass-arc-inner');
+      const cardinals = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
+      // Create marks for all headings
+      for (let deg = 0; deg < 360; deg += 10) {
+        const mark = document.createElement('div');
+        mark.className = 'arc-mark' + (deg % 90 === 0 ? ' cardinal' : (deg % 45 === 0 ? ' semi' : ''));
+        const label = cardinals[deg] || (deg % 30 === 0 ? deg : '');
+        mark.innerHTML = '<span>' + label + '</span>';
+        mark.dataset.heading = deg;
+        arcInner.appendChild(mark);
+        compassArcMarks.push({ el: mark, heading: deg });
+      }
+    }
+    initCompassArc();
+
+    function updateCompassArc(heading) {
+      // Arc curves above, with center at bottom of the arc div
+      const centerX = 100; // center of 200px wide container
+      const centerY = 85;  // Y origin below the arc (marks appear above this)
+
+      compassArcMarks.forEach(({ el, heading: markHeading }) => {
+        // Calculate angular difference from current heading
+        let diff = markHeading - heading;
+        // Normalize to -180 to 180
+        while (diff > 180) diff -= 360;
+        while (diff < -180) diff += 360;
+
+        // Only show marks within the visible arc span
+        const halfSpan = COMPASS_ARC_SPAN / 2;
+        if (Math.abs(diff) <= halfSpan) {
+          el.style.display = 'block';
+          // Map diff to position on arc: 0 at top center, negative left, positive right
+          // Angle in radians: -90° is straight up, diff shifts left/right
+          const angleRad = (-90 + diff) * Math.PI / 180;
+          const x = centerX + COMPASS_ARC_RADIUS * Math.cos(angleRad);
+          const y = centerY + COMPASS_ARC_RADIUS * Math.sin(angleRad);
+          el.style.left = x + 'px';
+          el.style.top = y + 'px';
+          // Fade at edges for smooth appearance
+          const opacity = 1 - Math.abs(diff) / halfSpan * 0.5;
+          el.style.opacity = opacity;
+        } else {
+          el.style.display = 'none';
+        }
+      });
+    }
+
+    function updateCompass(heading) {
+      const tape = document.getElementById('compass-tape-inner');
+      const offset = -((heading + 180) * 3) + 150;
+      tape.style.transform = 'translateX(' + offset + 'px)';
+      document.getElementById('heading-value').textContent = Math.round(heading).toString().padStart(3, '0') + String.fromCharCode(176);
+      // Also update the curved arc compass
+      updateCompassArc(heading);
+    }
+
+    const toggleBtn = document.getElementById('toggle-telemetry');
+    const hudPanel = document.getElementById('hud');
+    toggleBtn.addEventListener('click', () => {
+      const isHidden = hudPanel.classList.toggle('hidden');
+      toggleBtn.textContent = isHidden ? 'Show' : 'Hide';
+      toggleBtn.classList.toggle('panel-visible', !isHidden);
+    });
+
+    let camera, controls, initialCamera, initialTarget;
+
     (async () => {
-      const config = await fetchRunwayConfig();
-      // Use config values
-      const r = config.runway;
-      const p = config.property;
-      RUNWAY_START = new THREE.Vector3(r.start[0], r.start[1], r.start[2]).applyQuaternion(SIM_TO_VIEWER_QUAT);
-      runwayLength = r.length;
-      runwayWidth = r.width;
-      propertySize = p.size;
-      // Camera offset: in front of aircraft, looking down runway (X+), slightly above and offset
-      CAMERA_OFFSET = new THREE.Vector3(8, 3, 6);
-      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.copy(RUNWAY_START.clone().add(CAMERA_OFFSET));
-      camera.lookAt(RUNWAY_START);
+      const GROUND_Y = 0;
+
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 50000);
+      camera.position.set(-2000, 1500, 2000);
+      camera.lookAt(0, 0, 0);
       initialCamera = camera.position.clone();
 
-      // --- Add Runway Mesh ---
-      const runwayGeometry = new THREE.PlaneGeometry(runwayLength, runwayWidth);
-      const runwayMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
-      const runway = new THREE.Mesh(runwayGeometry, runwayMaterial);
-      // shift by half the length so the runway starts at x=0 in sim coordinates
-      runway.position.set(runwayLength * 0.5, RUNWAY_START.y, 0);
-      runway.rotation.x = -Math.PI / 2;
-      scene.add(runway);
-
-      // --- Add Property Boundary ---
-      const propertyShape = new THREE.Shape();
-      propertyShape.moveTo(-propertySize/2, -propertySize/2);
-      propertyShape.lineTo(propertySize/2, -propertySize/2);
-      propertyShape.lineTo(propertySize/2, propertySize/2);
-      propertyShape.lineTo(-propertySize/2, propertySize/2);
-      propertyShape.lineTo(-propertySize/2, -propertySize/2);
-      const propertyPoints = propertyShape.getPoints();
-      const propertyGeometry = new THREE.BufferGeometry().setFromPoints(propertyPoints.map(pt => new THREE.Vector3(pt.x, RUNWAY_START.y + 0.01, pt.y)));
-      const propertyLine = new THREE.Line(propertyGeometry, new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 }));
-      propertyLine.position.set(0, 0, 0);
-      scene.add(propertyLine);
-
-      // --- Add Ground Plane ---
-      const groundGeometry = new THREE.PlaneGeometry(propertySize, propertySize);
-      const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x226622, roughness: 1.0, metalness: 0.0, transparent: true, opacity: 0.5 });
+      // Ground: X=East-West (5km), Z=North-South (10km)
+      const groundGeometry = new THREE.PlaneGeometry(AREA_WIDTH, AREA_LENGTH);
+      const groundMaterial = new THREE.MeshStandardMaterial({
+        color: 0x226622, roughness: 1.0, metalness: 0.0,
+        transparent: true, opacity: 0.5
+      });
       const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-      ground.position.set(0, RUNWAY_START.y - 0.01, 0);
+      ground.position.set(0, GROUND_Y - 0.01, 0);
       ground.rotation.x = -Math.PI / 2;
       scene.add(ground);
 
-      // --- Add vertical ceiling plane ---
-      const ceilingGeometry = new THREE.PlaneGeometry(propertySize, propertySize);
-      const ceilingMaterial = new THREE.MeshBasicMaterial({ color: 0xf87171, transparent: true, opacity: 0.08, side: THREE.DoubleSide });
+      const boundaryGeometry = new THREE.BufferGeometry();
+      // Boundary: X=+-2500 (East-West), Z=+-5000 (North-South)
+      const boundaryPoints = [
+        new THREE.Vector3(-AREA_WIDTH/2, GROUND_Y + 0.02, -AREA_LENGTH/2),
+        new THREE.Vector3(AREA_WIDTH/2, GROUND_Y + 0.02, -AREA_LENGTH/2),
+        new THREE.Vector3(AREA_WIDTH/2, GROUND_Y + 0.02, AREA_LENGTH/2),
+        new THREE.Vector3(-AREA_WIDTH/2, GROUND_Y + 0.02, AREA_LENGTH/2),
+        new THREE.Vector3(-AREA_WIDTH/2, GROUND_Y + 0.02, -AREA_LENGTH/2)
+      ];
+      boundaryGeometry.setFromPoints(boundaryPoints);
+      const boundaryLine = new THREE.Line(boundaryGeometry, new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 }));
+      scene.add(boundaryLine);
+
+      const runwayLength = 600;
+      const runwayWidth = 20;
+      // Runway aligned North-South (along Z axis)
+      const runwayGeometry = new THREE.PlaneGeometry(runwayWidth, runwayLength);
+      const runwayMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
+      const runway = new THREE.Mesh(runwayGeometry, runwayMaterial);
+      runway.position.set(0, GROUND_Y, 0);
+      runway.rotation.x = -Math.PI / 2;
+      scene.add(runway);
+
+      const stripeLength = 36.6;
+      const gapLength = 24.4;
+      const stripeWidth = 0.91;
+      const totalPattern = stripeLength + gapLength;
+      const numStripes = Math.floor(runwayLength / totalPattern);
+      for (let i = 0; i < numStripes; i++) {
+        const stripeGeom = new THREE.PlaneGeometry(stripeWidth, stripeLength);
+        const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const stripe = new THREE.Mesh(stripeGeom, stripeMat);
+        stripe.position.set(0, GROUND_Y + 0.01, -runwayLength/2 + i * totalPattern + stripeLength / 2);
+        stripe.rotation.x = -Math.PI / 2;
+        scene.add(stripe);
+      }
+
+      const ceilingGeometry = new THREE.PlaneGeometry(AREA_WIDTH, AREA_LENGTH);
+      const ceilingMaterial = new THREE.MeshBasicMaterial({
+        color: 0xf87171, transparent: true, opacity: 0.08, side: THREE.DoubleSide
+      });
       const ceilingPlane = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
-      ceilingPlane.position.set(0, RUNWAY_START.y + CEILING_M, 0);
+      ceilingPlane.position.set(0, GROUND_Y + CEILING_M, 0);
       ceilingPlane.rotation.x = -Math.PI / 2;
       scene.add(ceilingPlane);
 
+      const gridHelper = new THREE.GridHelper(AREA_LENGTH, 20, 0x444444, 0x222222);
+      gridHelper.position.y = GROUND_Y + 0.005;
+      scene.add(gridHelper);
+
       controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
-      controls.target.copy(RUNWAY_START);
+      controls.target.set(0, 500, 0);
       initialTarget = controls.target.clone();
 
       const light = new THREE.DirectionalLight(0xffffff, 1.2);
-      light.position.set(5, 10, 7);
+      light.position.set(5000, 10000, 7000);
       scene.add(light);
       scene.add(new THREE.AmbientLight(0xffffff, 0.3));
 
-      // Continue with rest of viewer setup (GLTF, telemetry, etc.)
       setupViewer();
     })();
 
-    // The rest of the viewer logic is wrapped in a function to be called after config loads
     function setupViewer() {
-      const wsUrl = 'ws://localhost:8765';
+      const wsUrl = 'ws://100.79.9.48:8765';
       let ws;
       let isPaused = false;
       let lastHeartbeatTime = null;
       let heartbeatValue = null;
+      let lastAltitude = 0;
+      let lastAltTime = performance.now();
+
       const statusEl = document.getElementById('status');
-      const unitLabel = document.getElementById('unitLabel');
       const wsUrlEl = document.getElementById('ws-url');
       const hbEl = document.getElementById('heartbeat');
       const hbAgeEl = document.getElementById('hb-age');
@@ -206,65 +622,41 @@
       const posEl = document.getElementById('pos');
       const velEl = document.getElementById('vel');
       const ratesEl = document.getElementById('rates');
-      const quatEl = document.getElementById('quat');
       const surfEl = document.getElementById('surfaces');
       const throttleEl = document.getElementById('throttle');
-      const batteryEl = document.getElementById('battery');
-      const loadEl = document.getElementById('load');
+      const flapsEl = document.getElementById('flaps');
       const ceilingEl = document.getElementById('ceiling');
-      const modeEl = document.getElementById('mode');
       const simTimeEl = document.getElementById('simtime');
       const pauseBtn = document.getElementById('pauseBtn');
       const resetBtn = document.getElementById('resetBtn');
+      const followBtn = document.getElementById('followBtn');
+      const phaseDisplay = document.getElementById('phase-display');
+      const altValue = document.getElementById('alt-value');
+      const spdValue = document.getElementById('spd-value');
+      const aoaValue = document.getElementById('aoa-value');
+      const attitudeHorizon = document.getElementById('attitude-horizon');
+      const rollPointer = document.getElementById('roll-pointer');
+      const headingCenter = document.getElementById('heading-center');
+      const vsCenterValue = document.getElementById('vs-center-value');
+
+      let isFollowing = false;
+      const followOffset = new THREE.Vector3(-30, 15, 15);
 
       wsUrlEl.textContent = wsUrl;
-      wsUrlEl.title = 'Telemetry endpoint';
 
-      const throttleSlider = document.getElementById('throttleSlider');
-      const throttleSliderValue = document.getElementById('throttleSliderValue');
-      const throttleManualCheckbox = document.getElementById('throttleManual');
       const propAnimations = [];
-      const PROP_MAX_RAD_PER_SEC = (12000 / 60) * 2 * Math.PI;
+      const PROP_MAX_RAD_PER_SEC = (2400 / 60) * 2 * Math.PI;
       let currentThrottle = 0.0;
-      let telemetryThrottleValue = 0.0;
-      let manualThrottleValue = 0.0;
-      let manualThrottleActive = false;
 
-      const setSliderFromValue = (value) => {
-        const percent = Math.round(value * 100);
-        throttleSlider.value = percent;
-        throttleSliderValue.textContent = `${percent}%`;
-      };
-
-      throttleManualCheckbox.addEventListener('change', () => {
-        manualThrottleActive = throttleManualCheckbox.checked;
-        throttleSlider.disabled = !manualThrottleActive;
-        if (manualThrottleActive) {
-          manualThrottleValue = Number(throttleSlider.value) / 100;
-          currentThrottle = manualThrottleValue;
-          throttleEl.textContent = `${(manualThrottleValue * 100).toFixed(1)}% (manual)`;
-        } else {
-          currentThrottle = telemetryThrottleValue;
-          setSliderFromValue(telemetryThrottleValue);
-          throttleEl.textContent = `${(telemetryThrottleValue * 100).toFixed(1)}%`;
-        }
-      });
-
-      throttleSlider.addEventListener('input', () => {
-        throttleSliderValue.textContent = `${throttleSlider.value}%`;
-        if (manualThrottleActive) {
-          manualThrottleValue = Number(throttleSlider.value) / 100;
-          currentThrottle = manualThrottleValue;
-          throttleEl.textContent = `${(manualThrottleValue * 100).toFixed(1)}% (manual)`;
-        }
-      });
+      // Coordinate frame transform: NED (simulation) to Three.js viewer
+      // NED: X=North, Y=East, Z=Down
+      // Three.js: X=East/right, Y=Up, Z=South/towards camera
+      // Correct mapping: viewer_x = ned_y, viewer_y = -ned_z, viewer_z = -ned_x
 
       const loader = new GLTFLoader();
       let model = null;
       let modelGroup = null;
       const telemetryPos = new THREE.Vector3();
-      const modelPlacementOffset = new THREE.Vector3();
-      const bboxCenter = new THREE.Vector3();
       const simPositionVec = new THREE.Vector3();
 
       const preparePropSpinner = (mesh, axis) => {
@@ -276,23 +668,22 @@
       loader.load('Cessna172.gltf', (gltf) => {
         model = gltf.scene;
         model.updateMatrixWorld(true);
-        const bbox = new THREE.Box3().setFromObject(model);
-        bbox.getCenter(bboxCenter);
 
-        // Cessna172 model orientation fix:
-        // Model native: Y=nose, X=right wing, Z=up
-        // Viewer: X=runway, Y=up, Z=lateral
-        // Final rotation: 90° about X, -90° about Z (order XZY)
-        model.rotation.order = 'XZY';
-        model.rotation.x = Math.PI / 2;   // 90° roll
-        model.rotation.z = -Math.PI / 2;  // -90° pitch
-        model.rotation.y = 0;
-        model.position.set(0, 0.036, 0);  // Place wheels on ground
+        const CESSNA_SCALE = 14.5;
+        model.scale.set(CESSNA_SCALE, CESSNA_SCALE, CESSNA_SCALE);
+        // Orient model so nose points -Z when quaternion is identity (heading=0, level flight)
+        // The GLTF model's nose typically points +Y, so we need to rotate it
+        model.rotation.order = 'YXZ';
+        model.rotation.x = Math.PI / 2;   // Pitch model up from Y to face forward
+        model.rotation.y = Math.PI;       // Rotate 180 to face -Z (North in viewer)
+        model.rotation.z = 0;
+        model.position.set(0, 0, 0);  // Start at origin, center below
 
         let propCount = 0;
         const propSet = new Set();
         model.traverse((obj) => {
-          if (!obj.name || !obj.isMesh) return;
+          if (!obj.isMesh) return;
+          obj.material = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 0.5, metalness: 0.3 });
           if (obj.name.toLowerCase().includes('propel') && !propSet.has(obj.uuid)) {
             propSet.add(obj.uuid);
             preparePropSpinner(obj, new THREE.Vector3(1, 0, 0));
@@ -304,144 +695,265 @@
 
         modelGroup = new THREE.Group();
         modelGroup.add(model);
-        modelGroup.position.copy(RUNWAY_START);
+
+        // Center the model geometry - compensate for any internal offset in the GLTF
+        model.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        // Center X and Z, put wheels on ground (offset by min.y)
+        model.position.set(-center.x, -box.min.y, -center.z);
+
+        modelGroup.position.set(0, 0, 0);
         modelGroup.quaternion.identity();
         scene.add(modelGroup);
-        statusEl.textContent = 'Status: glTF loaded; waiting for telemetry…';
+        statusEl.textContent = 'Status: model loaded; waiting for telemetry';
       }, undefined, (err) => {
-        statusEl.textContent = 'Status: glTF load error';
+        statusEl.textContent = 'Status: model load error';
         console.error(err);
       });
 
       function setConn(status) { connDot.className = 'dot ' + status; }
       function setHeartbeatStatus(status) { hbDot.className = 'dot ' + status; }
-      function formatVec(v, digits = 2) { if (!Array.isArray(v)) return '—'; return v.map((x) => (typeof x === 'number' ? x.toFixed(digits) : '—')).join(', '); }
-    const METERS_TO_FEET = 3.280839895;
-    const RAD_TO_DEG = 180 / Math.PI;
-    function convertArray(arr, scale) {
-      return Array.isArray(arr) ? arr.map((v) => (typeof v === 'number' ? v * scale : v)) : arr;
-    }
-    function toImperialPayload(data) {
-      if (!data) return data;
-      if (data.units === 'imperial') return data;
-      const converted = { ...data };
-      converted.position = convertArray(data.position, METERS_TO_FEET);
-      converted.velocity = convertArray(data.velocity, METERS_TO_FEET);
-      converted.surfaces = convertArray(data.surfaces, RAD_TO_DEG);
-      converted.rates = convertArray(data.rates, RAD_TO_DEG);
-      converted.units = 'imperial';
-      return converted;
-    }
-
-      function updateHud(data) {
-        const units = data.units || 'imperial';
-        unitLabel.textContent = units === 'imperial' ? 'imperial (ft, ft/s, deg)' : units;
-        if (data.position) posEl.textContent = formatVec(data.position);
-        if (data.velocity) velEl.textContent = formatVec(data.velocity);
-        if (data.rates) ratesEl.textContent = formatVec(data.rates);
-        if (data.quaternion) quatEl.textContent = formatVec(data.quaternion, 3);
-        if (data.surfaces) surfEl.textContent = formatVec(data.surfaces, 2);
-        if (manualThrottleActive) {
-          throttleEl.textContent = (manualThrottleValue * 100).toFixed(1) + '% (manual)';
-        } else if (typeof data.throttle === 'number') {
-          throttleEl.textContent = (data.throttle * 100).toFixed(1) + '%';
-        }
-        if (typeof data.soc === 'number' && typeof data.voltage === 'number') batteryEl.textContent = `${(data.soc * 100).toFixed(1)}% / ${data.voltage.toFixed(2)} V`;
-        if (typeof data.load_factor === 'number') loadEl.textContent = data.load_factor.toFixed(2) + ' g';
-        if (ceilingEl && Array.isArray(data.position)) {
-          const altFt = data.position[2];
-          const clearance = CEILING_FT - altFt;
-          const warn = altFt >= CEILING_WARN_FT;
-          if (clearance >= 0) {
-            ceilingEl.textContent = `${CEILING_FT} ft (clr ${clearance.toFixed(1)} ft)`;
-          } else {
-            ceilingEl.textContent = `${CEILING_FT} ft (EXCEEDED by ${Math.abs(clearance).toFixed(1)} ft)`;
-          }
-          ceilingEl.classList.toggle('alert', warn);
-        }
-        if (data.mode) modeEl.textContent = data.mode;
-        if (typeof data.sim_time === 'number') simTimeEl.textContent = data.sim_time.toFixed(2);
+      function formatVec(v, digits) {
+        digits = digits || 1;
+        if (!Array.isArray(v)) return '-';
+        return v.map((x) => (typeof x === 'number' ? x.toFixed(digits) : '-')).join(', ');
       }
+
+      // Update attitude indicator with roll and pitch angles
+      function updateAttitudeIndicator(rollDeg, pitchDeg) {
+        // Clamp pitch display to reasonable range for visibility
+        const pitchClamped = THREE.MathUtils.clamp(pitchDeg, -30, 30);
+        // Pitch: positive pitch nose up = horizon moves down = negative translateY
+        // Scale: about 3px per degree of pitch
+        const pitchOffset = -pitchClamped * 3;
+        // Roll: positive roll = right wing down = rotate horizon counterclockwise
+        attitudeHorizon.style.transform = 'rotate(' + (-rollDeg) + 'deg) translateY(' + pitchOffset + 'px)';
+        // Update roll pointer - it shows aircraft bank angle
+        rollPointer.style.transform = 'translateX(-50%) rotate(' + rollDeg + 'deg)';
+      }
+
+      function updateHud(data, viewerPos) {
+        // Display position: X_N (North), Y_E (East), h (altitude = -Z_NED)
+        // Standard aerospace: positive X is North, positive Y is East, positive h is up
+        if (data.position) {
+          const xN = data.position[0];  // North position
+          const yE = data.position[1];  // East position
+          const h = -data.position[2];  // Altitude (positive up) = -Z_NED
+          posEl.textContent = xN.toFixed(1) + ', ' + yE.toFixed(1) + ', ' + h.toFixed(1);
+        }
+        // Body velocity: u (forward), v (right), w (down)
+        if (data.velocity) velEl.textContent = formatVec(data.velocity);
+        // Angular rates: p (roll), q (pitch), r (yaw) in deg/s
+        if (data.rates) ratesEl.textContent = formatVec(data.rates);
+        // Control surfaces: δa (aileron), δe (elevator), δr (rudder) normalized [-1, 1]
+        if (data.surfaces) surfEl.textContent = formatVec(data.surfaces, 2);
+        // Throttle: δT [0, 1]
+        if (typeof data.throttle === 'number') throttleEl.textContent = (data.throttle * 100).toFixed(0) + '%';
+        // Flaps δf and Spoilers δsp
+        if (typeof data.flaps === 'number' && typeof data.spoilers === 'number') {
+          flapsEl.textContent = (data.flaps * 100).toFixed(0) + '% / ' + (data.spoilers * 100).toFixed(0) + '%';
+        } else if (typeof data.flaps === 'number') {
+          flapsEl.textContent = (data.flaps * 100).toFixed(0) + '%';
+        }
+
+        if (typeof data.altitude_ft === 'number') {
+          const clearance = CEILING_FT - data.altitude_ft;
+          if (clearance >= 0) {
+            ceilingEl.textContent = CEILING_FT + ' ft (clr ' + clearance.toFixed(0) + ' ft)';
+            ceilingEl.classList.remove('alert');
+          } else {
+            ceilingEl.textContent = CEILING_FT + ' ft (EXCEEDED ' + Math.abs(clearance).toFixed(0) + ' ft)';
+            ceilingEl.classList.add('alert');
+          }
+        }
+
+        if (typeof data.sim_time === 'number') simTimeEl.textContent = data.sim_time.toFixed(2);
+        if (data.phase) phaseDisplay.textContent = data.phase;
+
+        if (typeof data.altitude_ft === 'number') {
+          altValue.textContent = Math.round(data.altitude_ft);
+
+          const now = performance.now();
+          const dt = (now - lastAltTime) / 1000 / 60;
+          if (dt > 0) {
+            const vs = data.vertical_speed_fpm || ((data.altitude_ft - lastAltitude) / dt);
+            vsCenterValue.textContent = Math.round(vs);
+          }
+          lastAltitude = data.altitude_ft;
+          lastAltTime = now;
+        }
+        if (typeof data.airspeed_kts === 'number') {
+          spdValue.textContent = Math.round(data.airspeed_kts);
+        }
+        if (typeof data.heading_deg === 'number') {
+          updateCompass(data.heading_deg);
+          // Also update heading in attitude indicator
+          headingCenter.textContent = Math.round(data.heading_deg).toString().padStart(3, '0') + String.fromCharCode(176);
+        }
+        // Update attitude indicator with roll (phi) and pitch (theta)
+        if (typeof data.roll_deg === 'number' && typeof data.pitch_deg === 'number') {
+          updateAttitudeIndicator(data.roll_deg, data.pitch_deg);
+        } else if (data.euler) {
+          // Euler angles: [phi (roll), theta (pitch), psi (yaw)] in degrees
+          updateAttitudeIndicator(data.euler[0], data.euler[1]);
+        }
+        // Update AoA (angle of attack)
+        if (typeof data.alpha_deg === 'number') {
+          aoaValue.textContent = data.alpha_deg.toFixed(1);
+        } else if (typeof data.aoa_deg === 'number') {
+          aoaValue.textContent = data.aoa_deg.toFixed(1);
+        }
+      }
+
       function connectWs() {
         ws = new WebSocket(wsUrl);
         window.wsClient = ws;
-        ws.onopen = () => { statusEl.textContent = 'Status: telemetry connected'; setConn('connected'); };
-        ws.onclose = () => { statusEl.textContent = 'Status: telemetry disconnected; retrying…'; setConn('disconnected'); setTimeout(connectWs, 1500); };
+        ws.onopen = () => {
+          statusEl.textContent = 'Status: telemetry connected';
+          setConn('connected');
+        };
+        ws.onclose = () => {
+          statusEl.textContent = 'Status: telemetry disconnected; retrying';
+          setConn('disconnected');
+          setTimeout(connectWs, 1500);
+        };
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
             window.lastTelemetry = data;
-            const [x, y, z] = data.position || [0, 0, 0];
-            const [w, qx, qy, qz] = data.quaternion || [1, 0, 0, 0];
+
+            const pos = data.position || [0, 0, 0];
+            const x = pos[0], y = pos[1], z = pos[2];
+            const quat = data.quaternion || [1, 0, 0, 0];
+            const w = quat[0], qx = quat[1], qy = quat[2], qz = quat[3];
+
             if (typeof data.throttle === 'number') {
-              const telemThrottle = THREE.MathUtils.clamp(data.throttle, 0, 1);
-              telemetryThrottleValue = telemThrottle;
-              if (!manualThrottleActive) {
-                currentThrottle = telemThrottle;
-                setSliderFromValue(telemThrottle);
-              }
+              currentThrottle = THREE.MathUtils.clamp(data.throttle, 0, 1);
             }
-        const imperialData = toImperialPayload(data);
-        updateHud(imperialData);
-        if (typeof data.throttle === 'number') {
-          currentThrottle = THREE.MathUtils.clamp(data.throttle, 0, 1);
-        }
+
             heartbeatValue = typeof data.heartbeat === 'number' ? data.heartbeat : heartbeatValue;
             lastHeartbeatTime = performance.now();
-            hbEl.textContent = heartbeatValue ?? '—';
+            hbEl.textContent = heartbeatValue !== null ? heartbeatValue : '-';
             hbAgeEl.textContent = 'age 0 ms';
             setHeartbeatStatus('connected');
+
+            // Position transform: NED to Three.js
+            // NED X (North) -> viewer -Z, NED Y (East) -> viewer X, NED Z (Down) -> viewer -Y
+            simPositionVec.set(y, -z, -x);
+
             if (!isPaused && modelGroup) {
-              simPositionVec.set(x, y, z).applyQuaternion(SIM_TO_VIEWER_QUAT);
               telemetryPos.copy(simPositionVec);
               modelGroup.position.copy(telemetryPos);
-              const qSim = new THREE.Quaternion(qx, qy, qz, w);
-              const qDisplay = SIM_TO_VIEWER_QUAT.clone()
-                .multiply(qSim)
-                .multiply(SIM_TO_VIEWER_INV);
-              modelGroup.quaternion.copy(qDisplay);
+
+              // Quaternion transform: remap components from NED to viewer frame
+              // NED qx (roll around North) -> viewer -qz (roll around -Z)
+              // NED qy (pitch around East) -> viewer qx (pitch around X)
+              // NED qz (yaw around Down) -> viewer -qy (yaw around -Y)
+              const qViewer = new THREE.Quaternion(qy, -qz, -qx, w);
+              modelGroup.quaternion.copy(qViewer);
             }
-          } catch (e) { console.warn('Bad telemetry payload', e); }
+
+            // Show viewer-space position after transform
+            updateHud(data, [simPositionVec.x, simPositionVec.y, simPositionVec.z]);
+          } catch (e) {
+            console.warn('Bad telemetry payload', e);
+          }
         };
       }
       connectWs();
+
       function onWindowResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
       window.addEventListener('resize', onWindowResize);
+
       pauseBtn.addEventListener('click', () => {
         isPaused = !isPaused;
         pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
-        statusEl.textContent = isPaused ? 'Status: paused (pose held)' : 'Status: telemetry connected';
+        pauseBtn.style.background = isPaused ? '#4a2d2d' : '#1f2a3d';
+        // Send pause/resume command to simulation
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: isPaused ? 'pause' : 'resume' }));
+          statusEl.textContent = isPaused ? 'Status: simulation paused' : 'Status: simulation running';
+          console.log('[CMD] Sent', isPaused ? 'pause' : 'resume', 'command');
+        } else {
+          statusEl.textContent = isPaused ? 'Status: paused (local only)' : 'Status: telemetry connected';
+        }
       });
+
       resetBtn.addEventListener('click', () => {
         camera.position.copy(initialCamera);
         controls.target.copy(initialTarget);
         controls.update();
-        if (modelGroup) {
-          modelGroup.position.copy(RUNWAY_START);
-          modelGroup.quaternion.identity();
-        }
+        isFollowing = false;
+        followBtn.textContent = 'Follow';
+        followBtn.style.background = '#1f2a3d';
       });
+
+      followBtn.addEventListener('click', () => {
+        isFollowing = !isFollowing;
+        followBtn.textContent = isFollowing ? 'Unfollow' : 'Follow';
+        followBtn.style.background = isFollowing ? '#2d4a2d' : '#1f2a3d';
+      });
+
+      // Simulation restart button
+      const restartBtn = document.getElementById('restartBtn');
+      if (restartBtn) {
+        restartBtn.addEventListener('click', () => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'restart' }));
+            statusEl.textContent = 'Status: restart requested';
+            console.log('[CMD] Sent restart command');
+          } else {
+            statusEl.textContent = 'Status: not connected';
+          }
+        });
+      }
+
+      // Phase jump selector
+      const phaseSelect = document.getElementById('phaseSelect');
+      if (phaseSelect) {
+        phaseSelect.addEventListener('change', (e) => {
+          const phase = e.target.value;
+          if (phase && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'set_phase', phase: phase }));
+            statusEl.textContent = 'Status: jumping to ' + phase;
+            console.log('[CMD] Sent set_phase command:', phase);
+            e.target.value = ''; // Reset dropdown to placeholder
+          }
+        });
+      }
+
       setInterval(() => {
         if (lastHeartbeatTime === null) return;
         const ageMs = performance.now() - lastHeartbeatTime;
-        hbAgeEl.textContent = `age ${ageMs.toFixed(0)} ms`;
+        hbAgeEl.textContent = 'age ' + ageMs.toFixed(0) + ' ms';
         if (ageMs > 1500) setHeartbeatStatus('stale');
         else if (ageMs > 400) setHeartbeatStatus('warn');
         else setHeartbeatStatus('connected');
       }, 200);
+
       const clock = new THREE.Clock();
       function animate() {
         requestAnimationFrame(animate);
         const dt = clock.getDelta();
+
         const spinRate = currentThrottle * PROP_MAX_RAD_PER_SEC;
         propAnimations.forEach((anim) => {
-          const dir = anim.direction ?? 1;
+          const dir = anim.direction || 1;
           anim.mesh.rotateOnAxis(anim.axis, dir * spinRate * dt);
         });
+
+        if (isFollowing && modelGroup) {
+          const worldOffset = followOffset.clone().applyQuaternion(modelGroup.quaternion);
+          const targetCamPos = modelGroup.position.clone().add(worldOffset);
+          camera.position.lerp(targetCamPos, 0.05);
+          controls.target.lerp(modelGroup.position, 0.1);
+        }
+
         controls.update();
         renderer.render(scene, camera);
       }
