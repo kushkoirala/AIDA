@@ -434,10 +434,4 @@ python scripts/train_cessna172_ppo.py --device cuda
 
 Monitor progress: `tensorboard --logdir=checkpoints/cessna172/tensorboard`
 
----
-
-**Prepared by:** Claude Code
-**For:** Kushal Koirala - AIDA Project
-**Date:** December 27, 2024
-
 **Next Action:** Start Cessna 172 PPO training 🚀
