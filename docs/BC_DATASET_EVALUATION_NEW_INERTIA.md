@@ -234,8 +234,3 @@ Skip BC pre-training and train PPO from scratch:
 **Next Action:**
 - **Recommend:** Adjust initial conditions and regenerate
 - **OR:** Skip BC and train PPO directly
-
----
-
-**Prepared by:** Claude Code
-**For:** Kushal Koirala - AIDA Project
