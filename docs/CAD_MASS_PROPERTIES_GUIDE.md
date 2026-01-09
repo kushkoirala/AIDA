@@ -206,8 +206,3 @@ Once you have the values from your CAD software:
 - Ixz may be small but non-zero
 - Large values suggest misaligned coordinate system
 
----
-
-**Author:** Claude Code
-**Date:** December 27, 2024
-**For:** Udaan UAV (AIDA Project)
