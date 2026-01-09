@@ -1,9 +1,9 @@
 # How PPO Learns "Good Flight"
 
-## Your Question
+##Question
 **"How does the PPO know what is a good flight?"**
 
-Great question! PPO learns through a **reward function** - a mathematical formula that scores every action the aircraft takes. Think of it like a flight instructor grading the pilot's performance at every moment.
+ PPO learns through a **reward function** - a mathematical formula that scores every action the aircraft takes. Think of it like a flight instructor grading the pilot's performance at every moment.
 
 ---
 
@@ -265,8 +265,4 @@ The neural network discovers optimal control strategies through pure reinforceme
 
 **Bottom line:** The reward function is PPO's flight instructor. It doesn't need to see examples of good flight - it learns by trying, failing, improving, and eventually mastering the task through the feedback signal.
 
----
-
-**Prepared by:** Claude Code
-**For:** Kushal Koirala - AIDA Project
 **Date:** December 27, 2024
