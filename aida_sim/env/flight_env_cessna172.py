@@ -53,7 +53,9 @@ class Cessna172Env(gym.Env):
                  dt: float = 0.02,
                  max_episode_steps: int = 3000,  # 60 seconds
                  task: str = "full_mission",
-                 cruise_altitude_ft: float = 3000.0):
+                 cruise_altitude_ft: float = 3000.0,
+                 use_overlapping_init: bool = False,
+                 overlap_range: float = 0.2):
         """
         Initialize Cessna 172 environment.
 
@@ -62,7 +64,11 @@ class Cessna172Env(gym.Env):
             max_episode_steps: Maximum steps per episode
             task: Mission task ("takeoff", "climb", "cruise", "full_mission")
             cruise_altitude_ft: Target cruise altitude in feet AGL
+            use_overlapping_init: Enable overlapping initial state distribution for curriculum handoff
+            overlap_range: Fraction of state range to use for overlap (0.0 to 0.5)
         """
+        self.use_overlapping_init = use_overlapping_init
+        self.overlap_range = overlap_range
         super().__init__()
 
         self.dt = dt
@@ -73,7 +79,7 @@ class Cessna172Env(gym.Env):
         # Curriculum learning phase definitions
         self.phase_configs = {
             'ground_roll': {
-                'max_steps': 500,  # 10 seconds
+                'max_steps': 1000,  # 20 seconds
                 'success_criteria': {
                     'airspeed_min': 28.0,  # 55 KIAS rotation speed
                     'altitude_max': 2.0,   # Must stay on ground
@@ -166,16 +172,16 @@ class Cessna172Env(gym.Env):
         self.runway_length = 1000.0    # m (3280 ft)
         self.runway_width = 30.0       # m (100 ft)
         self.runway_heading = 0.0      # degrees (runway 36)
-        self.runway_start = np.array([0.0, -500.0, 0.0], dtype=np.float32)  # Start at south end
-        self.runway_dir = np.array([0.0, 1.0, 0.0], dtype=np.float32)  # North direction
-        self.runway_right = np.array([1.0, 0.0, 0.0], dtype=np.float32)  # East direction
+        self.runway_start = np.array([-500.0, 0.0, 0.0], dtype=np.float32)  # Start at west end
+        self.runway_dir = np.array([1.0, 0.0, 0.0], dtype=np.float32)  # East direction (X+)
+        self.runway_right = np.array([0.0, 1.0, 0.0], dtype=np.float32)  # South direction (Y+)
 
         # Mission altitude parameters
         self.cruise_altitude = cruise_altitude_ft * 0.3048  # ft to meters
         self.takeoff_altitude = 50.0 * 0.3048  # 50 ft AGL
 
         # Flight volume (10km × 10km × 2000m)
-        self.flight_bounds = np.array([5000.0, 5000.0, 2000.0], dtype=np.float32)
+        self.flight_bounds = np.array([10000.0, 6000.0, 2000.0], dtype=np.float32)
 
         # Mission phase tracking
         self.mission_phases = [
@@ -292,6 +298,65 @@ class Cessna172Env(gym.Env):
             initial_state[0, StateIndex.U] = 0.0  # At rest
             initial_state[0, StateIndex.PSI] = self.runway_heading
 
+        elif self.task == "ground_roll":
+            # Phase 1: Start on runway at rest
+            initial_state[0, StateIndex.X] = self.runway_start[0]
+            initial_state[0, StateIndex.Y] = self.runway_start[1]
+            initial_state[0, StateIndex.Z] = -0.5  # On ground
+            initial_state[0, StateIndex.U] = 0.0  # At rest
+            initial_state[0, StateIndex.PSI] = self.runway_heading
+
+        elif self.task == "rotation":
+            # Phase 2: Start at rotation speed, ready for liftoff
+            # With overlapping init: vary airspeed around V_ROTATE to match phase 1 ending states
+            initial_state[0, StateIndex.X] = self.runway_start[0] + 300.0  # 300m down runway
+            initial_state[0, StateIndex.Y] = self.runway_start[1]
+            initial_state[0, StateIndex.Z] = -0.5  # On ground
+
+            if self.use_overlapping_init:
+                # Phase 1 ends anywhere from 0.85*V_ROTATE to 1.1*V_ROTATE
+                # Train phase 2 starting from this range
+                speed_range = self.overlap_range * self.V_ROTATE
+                base_speed = self.V_ROTATE * (1.0 - self.overlap_range * 0.5)
+                initial_state[0, StateIndex.U] = base_speed + np.random.uniform(0, speed_range)
+                # Add slight pitch variation (phase 1 may end with small pitch)
+                initial_state[0, StateIndex.THETA] = np.random.uniform(0, np.deg2rad(3.0))
+                # Add slight lateral offset (phase 1 may drift)
+                initial_state[0, StateIndex.X] += np.random.uniform(-2.0, 2.0)
+            else:
+                initial_state[0, StateIndex.U] = self.V_ROTATE  # At rotation speed (~28 m/s)
+            initial_state[0, StateIndex.PSI] = self.runway_heading
+
+        elif self.task == "initial_climb":
+            # Phase 3: Start just after liftoff at 10 ft AGL
+            # With overlapping init: vary altitude and speed to match phase 2 ending states
+            initial_state[0, StateIndex.X] = self.runway_start[0] + 500.0  # Past rotation point
+            initial_state[0, StateIndex.Y] = self.runway_start[1]
+            initial_state[0, StateIndex.PSI] = self.runway_heading
+
+            if self.use_overlapping_init:
+                # Phase 2 ends with altitude 1-5m, speed 28-32 m/s, pitch 5-15°
+                initial_state[0, StateIndex.Z] = -np.random.uniform(1.5, 5.0)  # 5-16 ft AGL
+                initial_state[0, StateIndex.U] = np.random.uniform(28.0, 35.0)  # Varied speed
+                initial_state[0, StateIndex.THETA] = np.deg2rad(np.random.uniform(5.0, 12.0))
+                initial_state[0, StateIndex.W] = -np.random.uniform(1.5, 3.5)  # Varied climb rate
+                # Add slight lateral offset
+                initial_state[0, StateIndex.X] += np.random.uniform(-5.0, 5.0)
+            else:
+                initial_state[0, StateIndex.Z] = -3.0  # 10 ft AGL (3 meters)
+                initial_state[0, StateIndex.U] = self.V_CLIMB  # Climb speed (~38 m/s)
+                initial_state[0, StateIndex.W] = -2.5  # Initial climb rate (~500 fpm)
+                initial_state[0, StateIndex.THETA] = np.deg2rad(8.0)  # Climb pitch
+
+        elif self.task == "full_climb":
+            # Phase 4: Start at 500 ft AGL
+            initial_state[0, StateIndex.X] = 0.0
+            initial_state[0, StateIndex.Y] = 0.0
+            initial_state[0, StateIndex.Z] = -152.4  # 500 ft AGL
+            initial_state[0, StateIndex.U] = self.V_CLIMB
+            initial_state[0, StateIndex.W] = -2.5  # Climbing
+            initial_state[0, StateIndex.THETA] = np.deg2rad(8.0)
+
         elif self.task == "climb":
             # Start airborne at 50 ft
             initial_state[0, StateIndex.X] = 0.0
@@ -317,7 +382,7 @@ class Cessna172Env(gym.Env):
         if self.task in ['ground_roll', 'rotation']:
             initial_controls = np.zeros((1, CONTROL_DIM), dtype=np.float32)
             initial_controls[0, ControlIndex.ELEVATOR] = np.deg2rad(-5.0)  # -5° nose-down initial position
-            self.sim.controls = initial_controls.copy()
+            self.sim.set_controls(initial_controls)
 
         # Get initial observation
         obs = self._get_observation()
@@ -353,13 +418,71 @@ class Cessna172Env(gym.Env):
         altitude = -float(self.sim.states[0, StateIndex.Z].get() if hasattr(self.sim.states, 'get')
                          else self.sim.states[0, StateIndex.Z])
 
-        if altitude < 0.0:  # Underground - clamp to ground
-            self.sim.states[0, StateIndex.Z] = 0.0
-            # Zero out downward vertical velocity (ground contact stops descent)
-            current_w = float(self.sim.states[0, StateIndex.W].get() if hasattr(self.sim.states, 'get')
-                            else self.sim.states[0, StateIndex.W])
-            if current_w < 0:  # Descending
-                self.sim.states[0, StateIndex.W] = 0.0
+        # Ground contact model - constrain aircraft when on ground
+        on_ground = altitude < 0.5  # Within 0.5m of ground
+        
+        # Get airspeed for rotation check
+        current_u = float(self.sim.states[0, StateIndex.U].get() if hasattr(self.sim.states, 'get')
+                         else self.sim.states[0, StateIndex.U])
+        current_v = float(self.sim.states[0, StateIndex.V].get() if hasattr(self.sim.states, 'get')
+                         else self.sim.states[0, StateIndex.V])
+        current_w_vel = float(self.sim.states[0, StateIndex.W].get() if hasattr(self.sim.states, 'get')
+                             else self.sim.states[0, StateIndex.W])
+        airspeed = np.sqrt(current_u**2 + current_v**2 + current_w_vel**2)
+        
+        if on_ground:
+            # 1. Clamp altitude to ground level
+            if altitude < 0.0:
+                self.sim.states[0, StateIndex.Z] = 0.0
+            
+            # 2. Zero out sinking velocity only when at/below ground level
+            # This prevents the aircraft from sinking through the ground
+            # but allows normal flight dynamics when airborne
+            if altitude <= 0.0:
+                current_w = float(self.sim.states[0, StateIndex.W].get() if hasattr(self.sim.states, 'get')
+                                else self.sim.states[0, StateIndex.W])
+                if current_w > 0:  # Sinking (positive W in NED = down)
+                    self.sim.states[0, StateIndex.W] = 0.0
+            
+            # 3. Constrain pitch angle on ground
+            # Tricycle gear: nosewheel limits pitch
+            # - During ground roll: keep nose down for acceleration
+            # - At rotation speed: allow pitch up for liftoff
+            current_theta = float(self.sim.states[0, StateIndex.THETA].get() if hasattr(self.sim.states, 'get')
+                                 else self.sim.states[0, StateIndex.THETA])
+            current_q = float(self.sim.states[0, StateIndex.Q].get() if hasattr(self.sim.states, 'get')
+                             else self.sim.states[0, StateIndex.Q])
+            
+            # At/above rotation speed: allow pitch up for takeoff
+            can_rotate = airspeed >= getattr(self, 'V_ROTATE', 28.0) * 0.95
+            
+            if can_rotate:
+                # Allow rotation up to 15 degrees for liftoff
+                max_pitch = np.deg2rad(15.0)
+                min_pitch = np.deg2rad(-3.0)
+            else:
+                # Ground roll: keep nose DOWN for efficient acceleration
+                # Nosewheel on ground limits pitch to -3 to +2 degrees
+                min_pitch = np.deg2rad(-3.0)
+                max_pitch = np.deg2rad(2.0)  # Restrict pitch-up during roll
+            
+            if current_theta < min_pitch:
+                self.sim.states[0, StateIndex.THETA] = min_pitch
+                if current_q < 0:
+                    self.sim.states[0, StateIndex.Q] = 0.0
+            elif current_theta > max_pitch:
+                self.sim.states[0, StateIndex.THETA] = max_pitch
+                if current_q > 0:
+                    self.sim.states[0, StateIndex.Q] = 0.0
+            
+            # 4. Constrain roll angle on ground (wheels keep wings level-ish)
+            current_phi = float(self.sim.states[0, StateIndex.PHI].get() if hasattr(self.sim.states, 'get')
+                               else self.sim.states[0, StateIndex.PHI])
+            max_roll = np.deg2rad(5.0)  # Small roll allowed
+            if abs(current_phi) > max_roll:
+                self.sim.states[0, StateIndex.PHI] = np.sign(current_phi) * max_roll
+                # Zero roll rate
+                self.sim.states[0, StateIndex.P] = 0.0
 
         # Get new observation
         obs = self._get_observation()
@@ -415,6 +538,14 @@ class Cessna172Env(gym.Env):
 
         # Rudder: map [-1, 1] → [-15°, +15°]
         controls[0, ControlIndex.RUDDER] = action[3] * np.deg2rad(15.0)
+        
+        # Flap: map [-1, 1] → [0, 1] if provided (6-element action)
+        if len(action) > 4:
+            controls[0, ControlIndex.FLAP] = (action[4] + 1.0) / 2.0 if action[4] < 0 else action[4]
+        
+        # Spoiler: map [-1, 1] → [0, 1] if provided
+        if len(action) > 5:
+            controls[0, ControlIndex.SPOILER] = (action[5] + 1.0) / 2.0 if action[5] < 0 else action[5]
 
         return controls
 
@@ -792,17 +923,36 @@ class Cessna172Env(gym.Env):
 
         # 6. Pitch control (CRITICAL: keep nose down during ground roll!)
         # Agent must learn to hold elevator to keep nose wheel on ground
-        if theta > 0:  # Nose up is BAD during ground roll
-            reward -= 50.0 * theta  # VERY strong penalty for ANY pitch-up
-        if theta > np.deg2rad(5.0):  # Excessive pitch
+        # BUT also prepare for smooth handoff to rotation phase
+        if theta > 0:  # Nose up is BAD during ground roll (until near rotation speed)
+            if airspeed < self.V_ROTATE * 0.9:
+                reward -= 50.0 * theta  # VERY strong penalty for early pitch-up
+            else:
+                # Near rotation speed: allow gentle pitch (handoff preparation)
+                if theta > np.deg2rad(3.0):
+                    reward -= 20.0 * (theta - np.deg2rad(3.0))
+        if theta > np.deg2rad(5.0):  # Excessive pitch anytime
             reward -= 200.0  # Massive penalty
         else:
             # Reward for keeping nose down
             reward += 5.0
 
-        # 6. Stay on ground (should not lift off in this phase)
+        # 7. Stay on ground (should not lift off in this phase)
         if altitude > 2.0:
             reward -= 10.0  # Premature liftoff
+
+        # 8. HANDOFF BONUS: Reward ending in state compatible with rotation phase
+        # When near rotation speed, reward states that phase 2 can handle
+        if airspeed >= self.V_ROTATE * 0.95:
+            # Heading aligned (phase 2 needs good heading)
+            if heading_error < np.deg2rad(5.0):
+                reward += 10.0
+            # Wings level
+            if abs(phi) < np.deg2rad(3.0):
+                reward += 5.0
+            # Pitch ready for rotation (slightly positive is OK near V_ROTATE)
+            if 0 <= theta <= np.deg2rad(3.0):
+                reward += 10.0  # Perfect handoff pitch
 
         # 6. Throttle usage (should be high for acceleration)
         throttle = (action[0] + 1.0) / 2.0  # Convert from [-1,1] to [0,1]
@@ -897,6 +1047,22 @@ class Cessna172Env(gym.Env):
                 reward += 0.5  # Staying on runway
             else:
                 reward -= 2.0 * lateral_dev  # Drifting off
+
+        # HANDOFF BONUS: Reward ending in state compatible with initial_climb phase
+        # When airborne with good altitude, reward states that phase 3 can handle
+        if altitude >= 2.0:
+            # Positive climb rate (phase 3 expects climbing)
+            if climb_rate > 1.5:
+                reward += 10.0
+            # Good airspeed for climb (phase 3 expects ~30-35 m/s)
+            if 28.0 <= airspeed <= 35.0:
+                reward += 5.0
+            # Pitch in climb range (phase 3 expects 5-12°)
+            if np.deg2rad(5.0) <= theta <= np.deg2rad(12.0):
+                reward += 5.0
+            # Wings level
+            if abs(phi) < np.deg2rad(5.0):
+                reward += 5.0
 
         # Termination penalties
         if terminated:

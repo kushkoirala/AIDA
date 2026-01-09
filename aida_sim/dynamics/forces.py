@@ -22,6 +22,15 @@ class AeroParams:
     CD_de: float = 0.02
     CDi: float = 0.04
 
+    # Flap/spoiler effects (normalized 0-1 input)
+    # Flaps increase both lift and drag
+    dCL_flap: float = 0.4             # CL increment at full flaps
+    dCD_flap: float = 0.06            # CD increment at full flaps
+    dCm_flap: float = -0.10           # Pitching moment change (nose down)
+    # Spoilers decrease lift and increase drag significantly
+    dCL_spoiler: float = -0.3         # CL decrement at full spoilers
+    dCD_spoiler: float = 0.08         # CD increment at full spoilers
+
     CY_beta: float = -0.9
     CY_da: float = 0.06
     CY_dr: float = 0.17
@@ -60,10 +69,21 @@ def aero_forces_moments(
     surfaces: np.ndarray,
     air_density: float,
     params: AeroParams,
+    flap: float = 0.0,
+    spoiler: float = 0.0,
 ):
     """
     Compute aerodynamic forces/moments using linearized stability derivatives.
     Returns body-frame forces/moments (N, N-m).
+    
+    Args:
+        vel_body: Body-frame velocity [u, v, w]
+        body_rates: Angular rates [p, q, r]
+        surfaces: Control surfaces [elevator, aileron, rudder]
+        air_density: Air density (kg/m^3)
+        params: Aerodynamic parameters
+        flap: Flap deflection 0-1 (0=retracted, 1=full)
+        spoiler: Spoiler deflection 0-1 (0=retracted, 1=full)
     """
     alpha, beta, airspeed = _calc_alpha_beta(vel_body)
     if airspeed < 1e-3:
@@ -80,15 +100,29 @@ def aero_forces_moments(
     q_hat = q * chord * inv_2V
     r_hat = r * span * inv_2V
 
-    # Coefficients
-    CL_linear = params.CL0 + params.CL_alpha * alpha + params.CL_q * q_hat + params.CL_de * elevator
+    # Clamp flap/spoiler to valid range
+    flap = np.clip(flap, 0.0, 1.0)
+    spoiler = np.clip(spoiler, 0.0, 1.0)
+
+    # Coefficients with flap/spoiler effects
+    CL_linear = (
+        params.CL0 
+        + params.CL_alpha * alpha 
+        + params.CL_q * q_hat 
+        + params.CL_de * elevator
+        + params.dCL_flap * flap           # Flaps increase lift
+        + params.dCL_spoiler * spoiler      # Spoilers decrease lift
+    )
     CL = np.clip(CL_linear, -params.CL_max, params.CL_max)
+    
     CD = (
         params.CD0
         + params.CD_alpha2 * alpha * alpha
         + params.CD_q * abs(q_hat)
         + params.CD_de * abs(elevator)
         + params.CDi * CL * CL
+        + params.dCD_flap * flap           # Flaps increase drag
+        + params.dCD_spoiler * spoiler      # Spoilers increase drag significantly
     )
     CY = params.CY_beta * beta + params.CY_da * aileron + params.CY_dr * rudder
 
@@ -104,6 +138,7 @@ def aero_forces_moments(
         + params.Cm_alpha * alpha
         + params.Cm_q * q_hat
         + params.Cm_de * elevator
+        + params.dCm_flap * flap            # Flaps cause nose-down moment
     )
     Cn = (
         params.Cn_beta * beta

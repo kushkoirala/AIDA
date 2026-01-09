@@ -14,6 +14,47 @@ AIDA is a reinforcement learning framework for training autonomous flight contro
 - **Cessna 172** - General aviation trainer (primary development platform)
 - **Udaan** - Custom fixed-wing UAV
 
+## Recent Accomplishments (January 2025)
+
+### Cross-Country Autonomous Flight
+Successfully demonstrated fully autonomous 31 NM cross-country flight:
+- **Route**: SN65 (Lake Waltanna) to KHUT (Hutchinson Regional)
+- **Phases**: 11 autonomous flight phases from ground roll to landing
+- **Result**: Precision landing on RWY 31
+
+![Cross-Country Landing](docs/img/KHUT_landed.png)
+
+*Landed at KHUT RWY 31*
+
+### 3D Viewer Enhancements
+- Real-time WebSocket telemetry (20 Hz)
+- Engine sound synthesis (Web Audio API)
+- Altitude callout system (GPWS-style)
+- Remote access via Tailscale
+
+See [docs/CROSS_COUNTRY_FLIGHT.md](docs/CROSS_COUNTRY_FLIGHT.md) and [docs/CONTROLLERS_OVERVIEW.md](docs/CONTROLLERS_OVERVIEW.md) for details.
+
+## Coming Up
+
+### Teardrop Approach Pattern
+Next milestone: Implement teardrop entry for instrument approach procedures:
+- Course reversal maneuver for runway alignment from any direction
+- Standard 1-minute outbound leg with 30° offset
+- Procedure turn integration with existing triangle intercept
+
+### Expert Data Generation
+Before PPO training, generate comprehensive flight demonstration data:
+- Multiple cross-country routes (varying distances/headings)
+- Traffic pattern variations (left/right patterns, different airports)
+- Approach types (straight-in, teardrop, full procedure turn)
+- Edge cases (crosswind, go-arounds)
+
+### PPO Training Pipeline
+With sufficient expert demonstrations:
+1. **Behavior Cloning (BC)** - Warm-start from expert data
+2. **Curriculum Learning** - Phase-by-phase PPO fine-tuning
+3. **Full Mission Training** - End-to-end autonomous flight
+
 ## Architecture
 
 ### Software Architecture
@@ -280,4 +321,4 @@ Internal research project.
 
 ---
 
-**Last Updated**: January 2, 2025
+**Last Updated**: January 8, 2025

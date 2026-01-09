@@ -29,6 +29,12 @@ from aida_sim.io.telemetry import telemetry_server, get_command
 
 TELEMETRY_UNITS = "metric"
 
+# Cessna 172 control surface max deflections (degrees)
+# These convert normalized [-1, 1] controls to actual surface angles
+MAX_ELEVATOR_DEG = 28.0   # ±28° (up elevator is positive)
+MAX_AILERON_DEG = 20.0    # ±20° (right aileron down is positive)
+MAX_RUDDER_DEG = 16.0     # ±16° (right rudder is positive)
+
 shared_state = {
     "position": [0, 0, 0],
     "quaternion": [1, 0, 0, 0],
@@ -103,11 +109,19 @@ def update_telemetry(state, action, phase_name, sim_time):
     shared_state["rates"] = [float(np.rad2deg(p)), float(np.rad2deg(q)), float(np.rad2deg(r))]
 
     shared_state["throttle"] = float(np.clip(action[0], 0, 1))
-    shared_state["surfaces"] = [
-        float(np.clip(action[1], -1, 1)),
-        float(np.clip(action[2], -1, 1)),
-        float(np.clip(action[3], -1, 1))
-    ]
+
+    # Normalized control inputs [-1, 1]
+    aileron_norm = float(np.clip(action[1], -1, 1))
+    elevator_norm = float(np.clip(action[2], -1, 1))
+    rudder_norm = float(np.clip(action[3], -1, 1))
+
+    shared_state["surfaces"] = [aileron_norm, elevator_norm, rudder_norm]
+
+    # Actual surface deflections in degrees
+    shared_state["aileron_deg"] = aileron_norm * MAX_AILERON_DEG
+    shared_state["elevator_deg"] = elevator_norm * MAX_ELEVATOR_DEG
+    shared_state["rudder_deg"] = rudder_norm * MAX_RUDDER_DEG
+
     shared_state["flaps"] = float(np.clip(action[4], 0, 1))
     shared_state["spoilers"] = float(np.clip(action[5], 0, 1))
 

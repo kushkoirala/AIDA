@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Run Cessna 172 Ground Roll with 3D Telemetry Viewer
+Auto-Launch Telemetry Viewer with Latest Best Checkpoint
 
-Loads a trained Phase 1 model and visualizes it in the 3D viewer
-with the Cessna 172 model, runway, and environment.
+Automatically finds and loads the most recent best_model.zip from
+the checkpoints directory and launches the telemetry viewer.
 
 Author: Kushal Koirala (with Claude Code)
-Date: December 27, 2024
+Date: December 29, 2024
 """
 
 import argparse
@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 import numpy as np
 import math
+import os
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -26,12 +28,6 @@ from aida_sim.io.telemetry import telemetry_server
 
 # Shared state for telemetry
 TELEMETRY_UNITS = "metric"
-
-# Cessna 172 control surface max deflections (degrees)
-# These convert normalized [-1, 1] controls to actual surface angles
-MAX_ELEVATOR_DEG = 28.0   # ±28° (up elevator is positive)
-MAX_AILERON_DEG = 20.0    # ±20° (right aileron down is positive)
-MAX_RUDDER_DEG = 16.0     # ±16° (right rudder is positive)
 
 shared_state = {
     "position": [0, 0, 0],
@@ -44,8 +40,35 @@ shared_state = {
     "voltage": 12.0,
     "load_factor": 1.0,
     "units": TELEMETRY_UNITS,
-    "model": "cessna172",  # Tell viewer which aircraft model to use
+    "model": "cessna172",
+    "sim_time": 0.0,
 }
+
+
+def find_latest_best_model(checkpoint_dir="checkpoints"):
+    """
+    Find the most recently modified best_model.zip in checkpoints directory.
+    
+    Returns:
+        tuple: (path, phase_name, modification_time) or (None, None, None)
+    """
+    checkpoint_path = Path(checkpoint_dir)
+    if not checkpoint_path.exists():
+        return None, None, None
+    
+    best_models = list(checkpoint_path.glob("**/best_model.zip"))
+    
+    if not best_models:
+        return None, None, None
+    
+    # Sort by modification time (most recent first)
+    best_models.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    
+    latest = best_models[0]
+    phase_name = latest.parent.name
+    mod_time = datetime.fromtimestamp(latest.stat().st_mtime)
+    
+    return str(latest), phase_name, mod_time
 
 
 def euler_to_quaternion(roll, pitch, yaw):
@@ -65,7 +88,7 @@ def euler_to_quaternion(roll, pitch, yaw):
     return [w, x, y, z]
 
 
-def update_telemetry_from_obs(obs, action, info):
+def update_telemetry_from_obs(obs, action, info, sim_time):
     """Update shared telemetry state from Cessna172 observation."""
     # State indices (from flight_env_cessna172.py)
     # [x, y, z, u, v, w, phi, theta, psi, p, q, r]
@@ -79,7 +102,7 @@ def update_telemetry_from_obs(obs, action, info):
     # Simulation: runway_start = [-500, 0, 0], viewer expects [0, 0, 0]
     viewer_x = x + 500.0  # Shift so runway starts at x=0
     viewer_y = y          # Y stays the same (lateral)
-    viewer_z = -z         # NED Z is down, viewer Z is up
+    viewer_z = z         # NED Z is down, viewer Z is up
     shared_state["position"] = [float(viewer_x), float(viewer_y), float(viewer_z)]
 
     # Orientation (convert Euler to quaternion)
@@ -95,60 +118,29 @@ def update_telemetry_from_obs(obs, action, info):
     # Control surfaces (from action)
     # Action: [throttle, aileron, elevator, rudder] (normalized -1 to 1)
     throttle_norm = (action[0] + 1.0) / 2.0  # Map to 0-1
-    aileron_norm = float(np.clip(action[1], -1.0, 1.0))
-    elevator_norm = float(np.clip(action[2], -1.0, 1.0))
-    rudder_norm = float(np.clip(action[3], -1.0, 1.0))
+    aileron = action[1]   # -1 to 1
+    elevator = action[2]  # -1 to 1
+    rudder = action[3]    # -1 to 1
 
     shared_state["throttle"] = float(np.clip(throttle_norm, 0.0, 1.0))
-    shared_state["surfaces"] = [aileron_norm, elevator_norm, rudder_norm]
-
-    # Actual surface deflections in degrees
-    shared_state["aileron_deg"] = aileron_norm * MAX_AILERON_DEG
-    shared_state["elevator_deg"] = elevator_norm * MAX_ELEVATOR_DEG
-    shared_state["rudder_deg"] = rudder_norm * MAX_RUDDER_DEG
+    shared_state["surfaces"] = [
+        float(np.clip(aileron, -1.0, 1.0)),
+        float(np.clip(elevator, -1.0, 1.0)),
+        float(np.clip(rudder, -1.0, 1.0))
+    ]
 
     # Battery/power (fake for now)
     shared_state["soc"] = 1.0
     shared_state["voltage"] = 12.0
 
     # Load factor (approximate from vertical acceleration)
-    # For ground roll, ~1.0
     shared_state["load_factor"] = 1.0
-
-    # Euler angles in degrees for attitude indicator
-    shared_state["roll_deg"] = float(np.rad2deg(phi))
-    shared_state["pitch_deg"] = float(np.rad2deg(theta))
-    shared_state["heading_deg"] = float(np.rad2deg(psi)) % 360.0
-
-    # Angle of attack (alpha) - calculated from body velocities
-    # AoA = atan2(w, u) where w=down velocity, u=forward velocity
-    if abs(u) > 0.1:  # Avoid division issues at low speed
-        alpha_rad = math.atan2(w, u)
-        shared_state["alpha_deg"] = float(np.rad2deg(alpha_rad))
-    else:
-        shared_state["alpha_deg"] = 0.0
-
-    # Airspeed in knots
-    airspeed_mps = math.sqrt(u**2 + v**2 + w**2)
-    shared_state["airspeed_kts"] = float(airspeed_mps * 1.94384)
-
-    # Altitude in feet
-    altitude_m = -z  # NED: Z is down, altitude is up
-    shared_state["altitude_ft"] = float(altitude_m * 3.28084)
-
-    # Vertical speed in fpm
-    # Transform body velocity to NED frame to get true vertical speed
-    # The NED z-velocity (z_dot) can be computed from body velocities:
-    # z_dot = -u*sin(theta) + v*cos(theta)*sin(phi) + w*cos(theta)*cos(phi)
-    # Negative z_dot = climb rate (positive when climbing)
-    z_dot = (-u * math.sin(theta) +
-             v * math.cos(theta) * math.sin(phi) +
-             w * math.cos(theta) * math.cos(phi))
-    vertical_speed_mps = -z_dot  # Positive when climbing (NED z is down)
-    shared_state["vertical_speed_fpm"] = float(vertical_speed_mps * 196.85)
+    
+    # Sim time
+    shared_state["sim_time"] = float(sim_time)
 
 
-def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=500, http_port=8000):
+def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=800):
     """
     Run Cessna 172 simulation with telemetry.
 
@@ -157,18 +149,8 @@ def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=500, http_
         task: Task type (ground_roll, rotation, etc.)
         dt: Timestep
         max_steps: Maximum steps per episode
-        http_port: HTTP server port for viewer URL
     """
-    print(f"\n{'='*60}")
-    print(f"  CESSNA 172 TELEMETRY VIEWER")
-    print(f"{'='*60}")
-    print(f"Model: {model_path}")
-    print(f"Task: {task}")
-    print(f"Timestep: {dt}s")
-    print(f"{'='*60}\n")
-
-    # Create environment
-    print("Creating environment...")
+    print(f"Creating environment...")
     env = Cessna172Env(task=task, cruise_altitude_ft=3000.0, dt=dt)
     print("✓ Environment created\n")
 
@@ -178,7 +160,7 @@ def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=500, http_
     print("✓ Model loaded\n")
 
     print("Starting simulation...")
-    print(f"Open browser to http://localhost:{http_port} to view telemetry")
+    print("Open browser to http://localhost:8000 to view telemetry")
     print("Press Ctrl+C to stop\n")
 
     try:
@@ -191,6 +173,7 @@ def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=500, http_
             done = False
             steps = 0
             total_reward = 0
+            sim_start = time.time()
 
             while not done and steps < max_steps:
                 # Get action from model
@@ -202,7 +185,8 @@ def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=500, http_
                 total_reward += reward
 
                 # Update telemetry
-                update_telemetry_from_obs(obs, action, info)
+                sim_time = time.time() - sim_start
+                update_telemetry_from_obs(obs, action, info, sim_time)
 
                 # Print status every 2 seconds
                 if steps % int(2.0 / dt) == 0:
@@ -235,11 +219,11 @@ def run_simulation(model_path, task='ground_roll', dt=0.02, max_steps=500, http_
     env.close()
 
 
-async def main_async(model_path, task, dt, max_steps, ws_port=8765, http_port=8000):
+async def main_async(model_path, task, dt, max_steps):
     """Run telemetry server and simulation concurrently."""
-    # Start telemetry server in background (WebSocket only)
+    # Start telemetry server in background (WebSocket on port 8765)
     server_task = asyncio.create_task(
-        telemetry_server(lambda: shared_state, host="0.0.0.0", port=ws_port)
+        telemetry_server(lambda: shared_state, host="0.0.0.0", port=8765)
     )
 
     # Give server time to start
@@ -248,7 +232,7 @@ async def main_async(model_path, task, dt, max_steps, ws_port=8765, http_port=80
     # Run simulation in thread
     sim_thread = threading.Thread(
         target=run_simulation,
-        args=(model_path, task, dt, max_steps, http_port),
+        args=(model_path, task, dt, max_steps),
         daemon=True
     )
     sim_thread.start()
@@ -261,45 +245,82 @@ async def main_async(model_path, task, dt, max_steps, ws_port=8765, http_port=80
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Run Cessna 172 with 3D Telemetry Viewer')
+    parser = argparse.ArgumentParser(
+        description='Auto-Launch Telemetry Viewer with Latest Best Checkpoint',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Auto-find latest checkpoint
+  python run_latest_telemetry.py
+  
+  # Specify task
+  python run_latest_telemetry.py --task rotation
+  
+  # Use specific checkpoint
+  python run_latest_telemetry.py --model checkpoints/my_model.zip
+        """
+    )
     parser.add_argument('--model', type=str, default=None,
-                       help='Path to PPO model (default: auto-find best)')
+                       help='Path to PPO model (default: auto-find latest best)')
     parser.add_argument('--task', type=str, default='ground_roll',
                        choices=['ground_roll', 'rotation', 'initial_climb', 'full_climb', 'cruise'],
                        help='Task type (default: ground_roll)')
     parser.add_argument('--dt', type=float, default=0.02,
                        help='Timestep in seconds (default: 0.02)')
-    parser.add_argument('--max-steps', type=int, default=500,
-                       help='Max steps per episode (default: 500)')
-    parser.add_argument('--ws-port', type=int, default=8765,
-                       help='WebSocket port (default: 8765)')
-    parser.add_argument('--http-port', type=int, default=8000,
-                       help='HTTP server port (default: 8000)')
+    parser.add_argument('--max-steps', type=int, default=800,
+                       help='Max steps per episode (default: 800)')
+    parser.add_argument('--checkpoint-dir', type=str, default='checkpoints',
+                       help='Checkpoints directory (default: checkpoints)')
     args = parser.parse_args()
+
+    print(f"\n{'='*60}")
+    print(f"  CESSNA 172 TELEMETRY VIEWER")
+    print(f"  Auto-Loading Latest Best Checkpoint")
+    print(f"{'='*60}\n")
 
     # Auto-find model if not specified
     if args.model is None:
-        import os
-        # Try to find the best model for the task
-        best_model = f"checkpoints/cessna172_curriculum/phase1_{args.task}/best_model.zip"
-        if os.path.exists(best_model):
-            model_path = best_model
+        print("🔍 Searching for latest best checkpoint...")
+        model_path, phase_name, mod_time = find_latest_best_model(args.checkpoint_dir)
+        
+        if model_path is None:
+            print(f"❌ No trained models found in {args.checkpoint_dir}/")
+            print(f"\nPlease wait for training to complete or specify --model")
+            return 1
+        
+        print(f"✓ Found: {model_path}")
+        print(f"  Phase: {phase_name}")
+        print(f"  Modified: {mod_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Auto-detect task from phase name
+        if 'ground_roll' in phase_name:
+            auto_task = 'ground_roll'
+        elif 'rotation' in phase_name:
+            auto_task = 'rotation'
+        elif 'initial_climb' in phase_name:
+            auto_task = 'initial_climb'
+        elif 'full_climb' in phase_name:
+            auto_task = 'full_climb'
+        elif 'cruise' in phase_name:
+            auto_task = 'cruise'
         else:
-            # Fall back to Phase 1 ground roll
-            best_model = "checkpoints/cessna172_curriculum/phase1_ground_roll/best_model.zip"
-            if os.path.exists(best_model):
-                model_path = best_model
-                print(f"Using Phase 1 ground roll model: {model_path}")
-            else:
-                print(f"❌ No trained model found!")
-                print(f"   Expected: {best_model}")
-                print(f"\nPlease wait for training to complete.")
-                return 1
+            auto_task = args.task
+        
+        # Override task if not explicitly set
+        if args.task == 'ground_roll':  # Default value
+            args.task = auto_task
+            print(f"  Task: {auto_task} (auto-detected)")
     else:
         model_path = args.model
+        print(f"Model: {model_path}")
+    
+    print(f"Task: {args.task}")
+    print(f"Timestep: {args.dt}s")
+    print(f"Max steps: {args.max_steps}")
+    print(f"{'='*60}\n")
 
     # Run async main
-    asyncio.run(main_async(model_path, args.task, args.dt, args.max_steps, args.ws_port, args.http_port))
+    asyncio.run(main_async(model_path, args.task, args.dt, args.max_steps))
 
     return 0
 

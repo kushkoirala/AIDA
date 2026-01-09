@@ -51,12 +51,12 @@ class GroundRollController:
     def compute_action(self, obs):
         """
         Compute control action from observation.
-        
+
         Args:
             obs: State observation [x, y, z, u, v, w, phi, theta, psi, p, q, r]
-            
+
         Returns:
-            action: [throttle, aileron, elevator, rudder] in [-1, 1]
+            action: [throttle, aileron, elevator, rudder, flap, spoiler] in [-1, 1]
         """
         # Extract states
         x, y, z = obs[StateIndex.X], obs[StateIndex.Y], obs[StateIndex.Z]
@@ -67,13 +67,13 @@ class GroundRollController:
         p = obs[StateIndex.P]          # Roll rate
         q = obs[StateIndex.Q]          # Pitch rate
         r = obs[StateIndex.R]          # Yaw rate
-        
+
         airspeed = np.sqrt(u**2 + v**2 + w**2)
         altitude = -z
-        
+
         # 1. THROTTLE: Always full for ground roll
         throttle = 1.0
-        
+
         # 2. ELEVATOR: Neutral until near rotation speed
         if airspeed < 0.85 * self.v_rotate:
             # Keep nose down / neutral during acceleration
@@ -85,18 +85,24 @@ class GroundRollController:
         else:
             # At/above rotation speed - rotate!
             elevator = self.elevator_rotate
-            
+
         # 3. RUDDER: Heading control (keep aligned with runway)
         heading_error = self._wrap_angle(self.runway_heading - psi)
         rudder = self.kp_heading * heading_error - self.kd_heading * r
         rudder = np.clip(rudder, -1.0, 1.0)
-        
+
         # 4. AILERONS: Wings level
         roll_error = 0.0 - phi  # Target zero roll
         aileron = self.kp_roll * roll_error - self.kd_roll * p
         aileron = np.clip(aileron, -1.0, 1.0)
-        
-        return np.array([throttle, aileron, elevator, rudder], dtype=np.float32)
+
+        # 5. FLAPS: Zero for takeoff (could add 10 deg flaps later)
+        flap = 0.0
+
+        # 6. SPOILERS: Never used during takeoff
+        spoiler = 0.0
+
+        return np.array([throttle, aileron, elevator, rudder, flap, spoiler], dtype=np.float32)
     
     def _wrap_angle(self, angle):
         """Wrap angle to [-pi, pi]."""

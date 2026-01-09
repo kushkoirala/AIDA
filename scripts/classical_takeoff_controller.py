@@ -70,7 +70,9 @@ class TakeoffController:
             elevator = -blend * 0.2
         aileron = self._wings_level(phi, p)
         rudder = self._heading_hold(psi, r)
-        return np.array([throttle, aileron, elevator, rudder], dtype=np.float32)
+        flap = 0.0  # No flaps during ground roll
+        spoiler = 0.0  # No spoilers during takeoff
+        return np.array([throttle, aileron, elevator, rudder, flap, spoiler], dtype=np.float32)
 
     def _rotation_control(self, phi, theta, psi, p, q, r):
         throttle = 1.0
@@ -80,7 +82,9 @@ class TakeoffController:
         elevator = np.clip(elevator, -0.8, 0.5)
         aileron = self._wings_level(phi, p)
         rudder = self._heading_hold(psi, r) * 0.7
-        return np.array([throttle, aileron, elevator, rudder], dtype=np.float32)
+        flap = 0.0  # No flaps during rotation
+        spoiler = 0.0  # No spoilers during takeoff
+        return np.array([throttle, aileron, elevator, rudder, flap, spoiler], dtype=np.float32)
 
     def _initial_climb_control(self, phi, theta, psi, p, q, r):
         throttle = 1.0
@@ -89,7 +93,9 @@ class TakeoffController:
         elevator = np.clip(elevator, -0.6, 0.5)
         aileron = self._wings_level(phi, p)
         rudder = self._heading_hold(psi, r) * 0.5
-        return np.array([throttle, aileron, elevator, rudder], dtype=np.float32)
+        flap = 0.0  # No flaps during initial climb
+        spoiler = 0.0  # No spoilers during takeoff
+        return np.array([throttle, aileron, elevator, rudder, flap, spoiler], dtype=np.float32)
 
     def _climb_control(self, phi, theta, psi, p, q, r):
         throttle = 1.0
@@ -98,7 +104,9 @@ class TakeoffController:
         elevator = np.clip(elevator, -0.5, 0.4)
         aileron = self._wings_level(phi, p)
         rudder = self._heading_hold(psi, r) * 0.3
-        return np.array([throttle, aileron, elevator, rudder], dtype=np.float32)
+        flap = 0.0  # No flaps during climb
+        spoiler = 0.0  # No spoilers during takeoff
+        return np.array([throttle, aileron, elevator, rudder, flap, spoiler], dtype=np.float32)
 
     def _wings_level(self, phi, p):
         roll_error = 0.0 - phi

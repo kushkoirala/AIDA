@@ -118,6 +118,28 @@
     .flight-param .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
     .flight-param .value { font-size: 18px; font-weight: 600; color: var(--text); }
     .flight-param .unit { font-size: 10px; color: var(--muted); }
+    #nav-info {
+      z-index: 40;
+      position: absolute;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 10px 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      display: flex;
+      gap: 30px;
+      align-items: center;
+    }
+    .nav-section { text-align: center; }
+    .nav-section .nav-label { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+    .nav-section .nav-value { font-size: 14px; font-weight: 600; color: var(--text); }
+    .nav-section .nav-sub { font-size: 10px; color: var(--muted); }
+    .nav-section.departure .nav-value { color: var(--ok); }
+    .nav-section.arrival .nav-value { color: var(--accent); }
+    .nav-divider { width: 1px; height: 40px; background: rgba(255,255,255,0.15); }
+
 
     #hud {
       position: absolute;
@@ -137,10 +159,50 @@
     }
     #hud .line { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 13px; }
     #hud .label { color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; }
-    #hud .controls { display: flex; gap: 8px; margin: 8px 0 10px; }
+    #hud .controls { display: flex; gap: 8px; margin: 8px 0 10px; flex-wrap: wrap; }
     #hud button { background: #1f2a3d; color: var(--text); border: 1px solid #28364c; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 13px; }
     #hud button:hover { background: #26344a; }
     #hud button:active { background: #1d293c; }
+    #hud button.active { background: #2d4a2d; border-color: var(--ok); }
+
+    /* Camera selector panel */
+    #camera-panel {
+      position: absolute;
+      bottom: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 8px 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      display: flex;
+      gap: 6px;
+      z-index: 50;
+    }
+    #camera-panel button {
+      background: #1f2a3d;
+      color: var(--text);
+      border: 1px solid #28364c;
+      border-radius: 6px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s ease;
+    }
+    #camera-panel button:hover { background: #26344a; }
+    #camera-panel button.active {
+      background: #2d4a2d;
+      border-color: var(--ok);
+      color: var(--ok);
+    }
+    #camera-panel .cam-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-right: 8px;
+      align-self: center;
+    }
     #hud code { background: rgba(255,255,255,0.06); padding: 2px 4px; border-radius: 4px; }
     #status { font-size: 13px; margin-bottom: 8px; }
     #grid { display: grid; grid-template-columns: 130px 1fr; gap: 6px 10px; font-size: 13px; }
@@ -356,11 +418,12 @@
       <div class="unit">deg</div>
     </div>
   </div>
+<div id="nav-info">    <div class="nav-section departure"><div class="nav-label">FROM</div><div class="nav-value">SN65</div><div class="nav-sub">RWY 35</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">DIST</div><div class="nav-value" id="nav-distance">--</div><div class="nav-sub" id="nav-eta">ETA --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">CRS</div><div class="nav-value">338</div><div class="nav-sub">TRUE</div></div>    <div class="nav-divider"></div>    <div class="nav-section arrival"><div class="nav-label">TO</div><div class="nav-value">KHUT</div><div class="nav-sub">RWY 31</div></div>  </div>
 
   <div id="hud">
     <div class="line">
       <span class="label">Telemetry</span>
-      <code id="ws-url">ws://100.79.9.48:8765</code>
+      <code id="ws-url">ws://127.0.0.1:8765</code>
       <span id="conn-dot" class="dot disconnected" title="WebSocket status"></span>
     </div>
     <div class="line">
@@ -370,6 +433,8 @@
       <span id="hb-dot" class="dot idle" title="Heartbeat freshness"></span>
     </div>
     <div class="controls">
+      <button id="soundBtn" title="Toggle engine sound">Sound OFF</button>
+      <button id="calloutBtn" title="Toggle altitude callouts">Callouts ON</button>
       <button id="pauseBtn">Pause</button>
       <button id="resetBtn">Reset View</button>
       <button id="followBtn">Follow</button>
@@ -390,8 +455,8 @@
     </div>
     <div id="status">Status: waiting for telemetry</div>
     <div id="grid">
-      <div class="grid-label">X<sub>N</sub>, Y<sub>E</sub>, h (m)</div><div id="pos">-</div>
-      <div class="grid-label">V<sub>body</sub> u, v, w (m/s)</div><div id="vel">-</div>
+      <div class="grid-label">X<sub>N</sub>, Y<sub>E</sub>, h (ft)</div><div id="pos">-</div>
+      <div class="grid-label">V<sub>body</sub> u, v, w (ft/s)</div><div id="vel">-</div>
       <div class="grid-label">ω p, q, r (°/s)</div><div id="rates">-</div>
       <div class="grid-label">δ<sub>a</sub>, δ<sub>e</sub>, δ<sub>r</sub></div><div id="surfaces">-</div>
       <div class="grid-label">δ<sub>T</sub> (Throttle)</div><div id="throttle">-</div>
@@ -401,7 +466,19 @@
     </div>
   </div>
 
+  <script src="engine_sound.js"></script>
   <canvas id="c"></canvas>
+
+  <!-- Camera View Selector -->
+  <div id="camera-panel">
+    <span class="cam-label">Camera</span>
+    <button id="cam-free" class="active" title="Free orbit camera">Free</button>
+    <button id="cam-chase" title="Chase camera behind aircraft">Chase</button>
+    <button id="cam-side" title="Side view (left)">Side</button>
+    <button id="cam-top" title="Top-down view">Top</button>
+    <button id="cam-front" title="Front view">Front</button>
+    <button id="cam-cockpit" title="Cockpit view">Cockpit</button>
+  </div>
 
   <script type="importmap">
     {
@@ -413,6 +490,7 @@
   </script>
 
   <script type="module">
+    window.onerror = (msg, url, line) => { document.body.innerHTML = "<h1>JS Error: " + msg + " at line " + line + "</h1>"; };
     import * as THREE from 'three';
     import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
     import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -433,8 +511,8 @@
     const CEILING_WARN_FT = 7500;
     const CEILING_M = CEILING_FT * 0.3048;
 
-    const AREA_LENGTH = 10000;
-    const AREA_WIDTH = 5000;
+    const AREA_LENGTH = 400000;  // 120km in feet (covers SN65 to KHUT)
+    const AREA_WIDTH = 200000;   // 60km in feet
 
     function initCompassTape() {
       const tape = document.getElementById('compass-tape-inner');
@@ -525,8 +603,8 @@
     (async () => {
       const GROUND_Y = 0;
 
-      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 50000);
-      camera.position.set(-2000, 1500, 2000);
+      camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 250000);
+      camera.position.set(-6000, 5000, 6000);
       camera.lookAt(0, 0, 0);
       initialCamera = camera.position.clone();
 
@@ -554,8 +632,8 @@
       const boundaryLine = new THREE.Line(boundaryGeometry, new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 }));
       scene.add(boundaryLine);
 
-      const runwayLength = 600;
-      const runwayWidth = 20;
+      const runwayLength = 2625;  // 800m in feet
+      const runwayWidth = 65;
       // Runway aligned North-South (along Z axis)
       const runwayGeometry = new THREE.PlaneGeometry(runwayWidth, runwayLength);
       const runwayMaterial = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
@@ -577,6 +655,162 @@
         stripe.rotation.x = -Math.PI / 2;
         scene.add(stripe);
       }
+
+      // ===== RUNWAY LABELS =====
+      // Create text labels for runway numbers and airport identifier
+      function createRunwayLabel(text, fontSize = 80, color = '#FFFFFF') {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 256;
+        canvas.height = 128;
+        
+        ctx.fillStyle = 'transparent';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.font = 'bold ' + fontSize + 'px Arial';
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+        
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        
+        const labelGeom = new THREE.PlaneGeometry(120, 60);
+        const labelMat = new THREE.MeshBasicMaterial({ 
+          map: texture, 
+          transparent: true,
+          side: THREE.DoubleSide
+        });
+        return new THREE.Mesh(labelGeom, labelMat);
+      }
+      
+      // SN65 - Runway 35 (south end, facing north)
+      // Runway 35 means heading 350 deg (roughly north)
+      const rwy35Label = createRunwayLabel('35', 90);
+      rwy35Label.position.set(0, GROUND_Y + 0.02, runwayLength/2 - 80);  // South end
+      rwy35Label.rotation.x = -Math.PI / 2;
+      rwy35Label.rotation.z = Math.PI;  // Face aircraft rolling north
+      scene.add(rwy35Label);
+      
+      // Airport identifier at south end
+      const sn65Label = createRunwayLabel('SN65', 60);
+      sn65Label.position.set(0, GROUND_Y + 0.02, runwayLength/2 - 160);
+      sn65Label.rotation.x = -Math.PI / 2;
+      sn65Label.rotation.z = Math.PI;
+      scene.add(sn65Label);
+      // ===== KHUT AIRPORT (destination) =====
+      // KHUT is at 52800m North, 21300m West from SN65
+      // In scene coords: X=East/West, Z=-North/South, Y=up
+      const KHUT_POS_X = -69882;  // West in feet (negative X in scene)
+      const KHUT_POS_Z = -173228;  // North in feet (negative Z in scene)
+      
+      // KHUT Runway 31/13 - heading 314/134 degrees
+      const khutRwyLen = 4000;  // feet
+      const khutRwyWid = 75;    // feet
+      
+      // Create runway using a group for proper rotation
+      const khutRwyGroup = new THREE.Group();
+      khutRwyGroup.position.set(KHUT_POS_X, GROUND_Y, KHUT_POS_Z);
+      
+      // Runway tarmac (dark gray asphalt)
+      const khutRwyGeom = new THREE.PlaneGeometry(khutRwyWid, khutRwyLen);
+      const khutRwyMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
+      const khutRunway = new THREE.Mesh(khutRwyGeom, khutRwyMat);
+      khutRunway.position.set(0, 0.01, 0);
+      khutRunway.rotation.x = -Math.PI / 2;
+      khutRwyGroup.add(khutRunway);
+      
+      // Runway centerline stripes
+      const khutStripeLen = 120;
+      const khutStripeGap = 80;
+      const khutStripeWid = 3;
+      const khutTotalPattern = khutStripeLen + khutStripeGap;
+      const khutNumStripes = Math.floor((khutRwyLen - 200) / khutTotalPattern);
+      for (let i = 0; i < khutNumStripes; i++) {
+        const stripeGeom = new THREE.PlaneGeometry(khutStripeWid, khutStripeLen);
+        const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const stripe = new THREE.Mesh(stripeGeom, stripeMat);
+        const zPos = -khutRwyLen/2 + 150 + i * khutTotalPattern + khutStripeLen/2;
+        stripe.position.set(0, 0.02, zPos);
+        stripe.rotation.x = -Math.PI / 2;
+        khutRwyGroup.add(stripe);
+      }
+      
+      // Threshold markings (RWY 31 end)
+      for (let j = -3; j <= 3; j++) {
+        if (j === 0) continue;
+        const threshGeom = new THREE.PlaneGeometry(3, 100);
+        const threshMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const thresh = new THREE.Mesh(threshGeom, threshMat);
+        thresh.position.set(j * 8, 0.02, khutRwyLen/2 - 60);
+        thresh.rotation.x = -Math.PI / 2;
+        khutRwyGroup.add(thresh);
+      }
+      
+      // Threshold markings (RWY 13 end)
+      for (let j = -3; j <= 3; j++) {
+        if (j === 0) continue;
+        const threshGeom = new THREE.PlaneGeometry(3, 100);
+        const threshMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const thresh = new THREE.Mesh(threshGeom, threshMat);
+        thresh.position.set(j * 8, 0.02, -khutRwyLen/2 + 60);
+        thresh.rotation.x = -Math.PI / 2;
+        khutRwyGroup.add(thresh);
+      }
+      
+      // RWY 31 number
+      const rwy31Label = createRunwayLabel('31', 90);
+      rwy31Label.position.set(0, 0.02, khutRwyLen/2 - 180);
+      rwy31Label.rotation.x = -Math.PI / 2;
+      rwy31Label.rotation.z = Math.PI;
+      khutRwyGroup.add(rwy31Label);
+      
+      // RWY 13 number
+      const rwy13Label = createRunwayLabel('13', 90);
+      rwy13Label.position.set(0, 0.02, -khutRwyLen/2 + 180);
+      rwy13Label.rotation.x = -Math.PI / 2;
+      rwy13Label.rotation.z = 0;
+      khutRwyGroup.add(rwy13Label);
+      
+      // Rotate group: RWY 31 heading 314 means +Z points toward 314 deg
+      // In scene: north is -Z, east is +X. Heading 314 = NW
+      // Rotation: -(314-180) = -134 deg around Y
+      khutRwyGroup.rotation.y = -(314 - 180) * Math.PI / 180;
+      scene.add(khutRwyGroup);
+      
+      // KHUT identifier
+      const khutIdLabel = createRunwayLabel('KHUT', 100);
+      khutIdLabel.position.set(KHUT_POS_X + 200, GROUND_Y + 1, KHUT_POS_Z);
+      khutIdLabel.rotation.x = -Math.PI / 2;
+      scene.add(khutIdLabel);
+      
+      // Beacon column
+      const khutBeaconGeom = new THREE.CylinderGeometry(30, 30, 5000, 8);
+      const khutBeaconMat = new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.15 });
+      const khutBeacon = new THREE.Mesh(khutBeaconGeom, khutBeaconMat);
+      khutBeacon.position.set(KHUT_POS_X, GROUND_Y + 2500, KHUT_POS_Z);
+      scene.add(khutBeacon);
+      
+      // Course line from SN65 to KHUT
+      const coursePoints = [
+        new THREE.Vector3(0, GROUND_Y + 10, 0), 
+        new THREE.Vector3(KHUT_POS_X, GROUND_Y + 10, KHUT_POS_Z)
+      ];
+      const courseGeom = new THREE.BufferGeometry().setFromPoints(coursePoints);
+      const courseMat = new THREE.LineDashedMaterial({ 
+        color: 0x7dd3fc, dashSize: 500, gapSize: 300, transparent: true, opacity: 0.4 
+      });
+      const courseLine = new THREE.Line(courseGeom, courseMat);
+      courseLine.computeLineDistances();
+      scene.add(courseLine);
+
+      
+      // Runway 17 (north end, facing south) - reciprocal of 35
+      const rwy17Label = createRunwayLabel('17', 90);
+      rwy17Label.position.set(0, GROUND_Y + 0.02, -runwayLength/2 + 80);  // North end
+      rwy17Label.rotation.x = -Math.PI / 2;
+      scene.add(rwy17Label);
 
       const ceilingGeometry = new THREE.PlaneGeometry(AREA_WIDTH, AREA_LENGTH);
       const ceilingMaterial = new THREE.MeshBasicMaterial({
@@ -605,7 +839,12 @@
     })();
 
     function setupViewer() {
-      const wsUrl = 'ws://100.79.9.48:8765';
+      // Allow WebSocket port to be specified via URL query parameter
+      // Usage: index.html?wsport=8766 (or ?wshost=192.168.1.100&wsport=8766)
+      const urlParams = new URLSearchParams(window.location.search);
+      const wsHost = urlParams.get('wshost') || '127.0.0.1';
+      const wsPort = urlParams.get('wsport') || '8765';
+      const wsUrl = `ws://${wsHost}:${wsPort}`;
       let ws;
       let isPaused = false;
       let lastHeartbeatTime = null;
@@ -641,6 +880,23 @@
 
       let isFollowing = false;
       const followOffset = new THREE.Vector3(-30, 15, 15);
+
+      // Camera mode system
+      let cameraMode = 'free'; // 'free', 'chase', 'side', 'top', 'front', 'cockpit'
+      const cameraOffsets = {
+        chase: new THREE.Vector3(0, 8, 40),      // Behind and above
+        side: new THREE.Vector3(50, 10, 0),       // Left side view
+        top: new THREE.Vector3(0, 100, 0),        // Directly above
+        front: new THREE.Vector3(0, 5, -50),      // In front looking back
+        cockpit: new THREE.Vector3(0, 2.5, -2)    // Inside cockpit
+      };
+      const cameraLookAhead = {
+        chase: new THREE.Vector3(0, 0, -50),      // Look ahead of aircraft
+        side: new THREE.Vector3(0, 0, 0),          // Look at aircraft
+        top: new THREE.Vector3(0, 0, 0),           // Look at aircraft
+        front: new THREE.Vector3(0, 0, 50),        // Look at aircraft
+        cockpit: new THREE.Vector3(0, 0, -100)     // Look far ahead
+      };
 
       wsUrlEl.textContent = wsUrl;
 
@@ -724,23 +980,25 @@
       function updateAttitudeIndicator(rollDeg, pitchDeg) {
         // Clamp pitch display to reasonable range for visibility
         const pitchClamped = THREE.MathUtils.clamp(pitchDeg, -30, 30);
-        // Pitch: positive pitch nose up = horizon moves down = negative translateY
+        // Pitch: positive pitch (nose up) = horizon moves DOWN in the display
+        // Moving the horizon element down (positive translateY) shows more blue sky
         // Scale: about 3px per degree of pitch
-        const pitchOffset = -pitchClamped * 3;
+        const pitchOffset = pitchClamped * 3;
         // Roll: positive roll = right wing down = rotate horizon counterclockwise
         attitudeHorizon.style.transform = 'rotate(' + (-rollDeg) + 'deg) translateY(' + pitchOffset + 'px)';
         // Update roll pointer - it shows aircraft bank angle
         rollPointer.style.transform = 'translateX(-50%) rotate(' + rollDeg + 'deg)';
       }
 
-      function updateHud(data, viewerPos) {
-        // Display position: X_N (North), Y_E (East), h (altitude = -Z_NED)
-        // Standard aerospace: positive X is North, positive Y is East, positive h is up
+function updateHud(data, viewerPos) {
+        // Display position: X_N (North), Y_E (East), h (altitude)
+        // Telemetry sends raw NED coords in meters: [X_north, Y_east, Z_down]
+        // Convert to display: XN (North m), YE (East m), h (altitude m = -Z)
         if (data.position) {
-          const xN = data.position[0];  // North position
-          const yE = data.position[1];  // East position
-          const h = -data.position[2];  // Altitude (positive up) = -Z_NED
-          posEl.textContent = xN.toFixed(1) + ', ' + yE.toFixed(1) + ', ' + h.toFixed(1);
+          const xN = data.position[0];           // North (meters)
+          const yE = data.position[1];           // East (meters)
+          const h = -data.position[2];           // Altitude = -Z_down (meters)
+          posEl.textContent = xN.toFixed(0) + ', ' + yE.toFixed(0) + ', ' + h.toFixed(0);
         }
         // Body velocity: u (forward), v (right), w (down)
         if (data.velocity) velEl.textContent = formatVec(data.velocity);
@@ -779,6 +1037,10 @@
           if (dt > 0) {
             const vs = data.vertical_speed_fpm || ((data.altitude_ft - lastAltitude) / dt);
             vsCenterValue.textContent = Math.round(vs);
+            // Check altitude callouts during descent
+            if (window.altitudeCalloutSystem) {
+              window.altitudeCalloutSystem.check(data.altitude_ft, vs);
+            }
           }
           lastAltitude = data.altitude_ft;
           lastAltTime = now;
@@ -803,6 +1065,20 @@
           aoaValue.textContent = data.alpha_deg.toFixed(1);
         } else if (typeof data.aoa_deg === 'number') {
           aoaValue.textContent = data.aoa_deg.toFixed(1);
+        }
+
+        // Update navigation info (distance to KHUT)
+        const navDistEl = document.getElementById('nav-distance');
+        const navEtaEl = document.getElementById('nav-eta');
+        if (navDistEl && typeof data.distance_nm === 'number') {
+          navDistEl.textContent = data.distance_nm.toFixed(1) + ' nm';
+          const spd = data.airspeed_kts || data.ias_kts || 0;
+          if (navEtaEl && spd > 30) {
+            const etaMin = (data.distance_nm / spd) * 60;
+            navEtaEl.textContent = 'ETA ' + Math.round(etaMin) + ' min';
+          } else if (navEtaEl) {
+            navEtaEl.textContent = 'ETA --';
+          }
         }
       }
 
@@ -840,7 +1116,9 @@
 
             // Position transform: NED to Three.js
             // NED X (North) -> viewer -Z, NED Y (East) -> viewer X, NED Z (Down) -> viewer -Y
-            simPositionVec.set(y, -z, -x);
+            // Transform NED to Three.js: NED(X=North,Y=East,Z=Down) -> Three.js(X=East,Y=Up,Z=-North)
+            simPositionVec.set(y, -z, -x);  // NED->Three.js: X=Y_east, Y=-Z_down(=altitude), Z=-X_north
+            console.log("Position:", x, y, z, "isPaused:", isPaused, "modelGroup:", !!modelGroup);
 
             if (!isPaused && modelGroup) {
               telemetryPos.copy(simPositionVec);
@@ -870,6 +1148,21 @@
       }
       window.addEventListener('resize', onWindowResize);
 
+      // Sound button
+      const soundBtn = document.getElementById("soundBtn");
+      soundBtn.addEventListener("click", () => {
+        if (window.engineSoundSystem) {
+          window.engineSoundSystem.toggle();
+        }
+      });
+
+      // Callout button
+      const calloutBtn = document.getElementById("calloutBtn");
+      calloutBtn.addEventListener("click", () => {
+        if (window.altitudeCalloutSystem) {
+          window.altitudeCalloutSystem.toggle();
+        }
+      });
       pauseBtn.addEventListener('click', () => {
         isPaused = !isPaused;
         pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
@@ -887,10 +1180,12 @@
       resetBtn.addEventListener('click', () => {
         camera.position.copy(initialCamera);
         controls.target.copy(initialTarget);
+        camera.up.set(0, 1, 0); // Reset camera up vector
         controls.update();
         isFollowing = false;
         followBtn.textContent = 'Follow';
         followBtn.style.background = '#1f2a3d';
+        setCameraMode('free'); // Reset to free camera mode
       });
 
       followBtn.addEventListener('click', () => {
@@ -927,6 +1222,56 @@
         });
       }
 
+      // Camera mode selector buttons
+      const camButtons = {
+        free: document.getElementById('cam-free'),
+        chase: document.getElementById('cam-chase'),
+        side: document.getElementById('cam-side'),
+        top: document.getElementById('cam-top'),
+        front: document.getElementById('cam-front'),
+        cockpit: document.getElementById('cam-cockpit')
+      };
+
+      function setCameraMode(mode) {
+        cameraMode = mode;
+        // Update button states
+        Object.keys(camButtons).forEach(key => {
+          if (camButtons[key]) {
+            camButtons[key].classList.toggle('active', key === mode);
+          }
+        });
+        // Disable orbit controls for fixed camera modes
+        if (mode === 'free') {
+          controls.enabled = true;
+          isFollowing = false;
+          followBtn.textContent = 'Follow';
+          followBtn.style.background = '#1f2a3d';
+        } else {
+          controls.enabled = false;
+        }
+        console.log('[Camera] Mode set to:', mode);
+      }
+
+      // Bind camera buttons
+      Object.keys(camButtons).forEach(mode => {
+        if (camButtons[mode]) {
+          camButtons[mode].addEventListener('click', () => setCameraMode(mode));
+        }
+      });
+
+      // Keyboard shortcuts for camera views (1-6)
+      document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+        switch(e.key) {
+          case '1': setCameraMode('free'); break;
+          case '2': setCameraMode('chase'); break;
+          case '3': setCameraMode('side'); break;
+          case '4': setCameraMode('top'); break;
+          case '5': setCameraMode('front'); break;
+          case '6': setCameraMode('cockpit'); break;
+        }
+      });
+
       setInterval(() => {
         if (lastHeartbeatTime === null) return;
         const ageMs = performance.now() - lastHeartbeatTime;
@@ -946,15 +1291,57 @@
           const dir = anim.direction || 1;
           anim.mesh.rotateOnAxis(anim.axis, dir * spinRate * dt);
         });
-
-        if (isFollowing && modelGroup) {
-          const worldOffset = followOffset.clone().applyQuaternion(modelGroup.quaternion);
-          const targetCamPos = modelGroup.position.clone().add(worldOffset);
-          camera.position.lerp(targetCamPos, 0.05);
-          controls.target.lerp(modelGroup.position, 0.1);
+        // Update engine sound based on throttle
+        if (window.engineSoundSystem) {
+          window.engineSoundSystem.update(currentThrottle);
         }
 
-        controls.update();
+        // Camera positioning based on mode
+        if (modelGroup) {
+          if (cameraMode !== 'free') {
+            // Get camera offset and look target for current mode
+            const offset = cameraOffsets[cameraMode];
+            const lookAhead = cameraLookAhead[cameraMode];
+
+            if (offset && lookAhead) {
+              // Transform offset by aircraft orientation
+              const worldOffset = offset.clone().applyQuaternion(modelGroup.quaternion);
+              const targetCamPos = modelGroup.position.clone().add(worldOffset);
+
+              // Transform look-ahead by aircraft orientation
+              const worldLookAhead = lookAhead.clone().applyQuaternion(modelGroup.quaternion);
+              const targetLookAt = modelGroup.position.clone().add(worldLookAhead);
+
+              // Smooth camera motion (faster for cockpit view)
+              const lerpSpeed = cameraMode === 'cockpit' ? 0.2 : 0.08;
+              camera.position.lerp(targetCamPos, lerpSpeed);
+
+              // For top view, keep camera oriented with North up
+              if (cameraMode === 'top') {
+                camera.up.set(0, 0, -1); // North is -Z in viewer space
+                camera.lookAt(modelGroup.position);
+              } else {
+                camera.up.set(0, 1, 0);
+                // Smooth look-at transition
+                const currentLookAt = new THREE.Vector3();
+                camera.getWorldDirection(currentLookAt);
+                currentLookAt.multiplyScalar(100).add(camera.position);
+                currentLookAt.lerp(targetLookAt, lerpSpeed);
+                camera.lookAt(currentLookAt);
+              }
+            }
+          } else if (isFollowing) {
+            // Legacy follow mode in free camera
+            const worldOffset = followOffset.clone().applyQuaternion(modelGroup.quaternion);
+            const targetCamPos = modelGroup.position.clone().add(worldOffset);
+            camera.position.lerp(targetCamPos, 0.05);
+            controls.target.lerp(modelGroup.position, 0.1);
+          }
+        }
+
+        if (cameraMode === 'free') {
+          controls.update();
+        }
         renderer.render(scene, camera);
       }
       animate();

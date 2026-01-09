@@ -69,11 +69,14 @@ class ControlIndex(IntEnum):
     AILERON = 1     # -1 to 1
     ELEVATOR = 2    # -1 to 1
     RUDDER = 3      # -1 to 1
+    FLAP = 4        # 0 to 1 (flap deflection)
+    SPOILER = 5     # 0 to 1 (spoiler deflection)
+    BRAKE = 6       # 0 to 1 (wheel brake application)
 
 
 # Dimensions
 STATE_DIM = 12
-CONTROL_DIM = 4
+CONTROL_DIM = 7  # throttle, aileron, elevator, rudder, flap, spoiler, brake
 
 
 @dataclass
@@ -118,6 +121,15 @@ class LongitudinalDerivatives:
     Cma: float = -0.613       # 1/rad (stable: negative)
     Cmq: float = -12.4
     Cmde: float = -1.122
+    
+    # Flap effects (normalized 0-1)
+    dCL_flap: float = 0.5     # CL increment at full flaps
+    dCD_flap: float = 0.08    # CD increment at full flaps
+    dCm_flap: float = -0.12   # Pitch moment at full flaps (nose-down)
+    
+    # Spoiler effects (normalized 0-1)
+    dCL_spoiler: float = -0.4 # CL reduction at full spoilers
+    dCD_spoiler: float = 0.10 # CD increment at full spoilers
 
 
 @dataclass
@@ -253,17 +265,34 @@ class FlightSimulator:
     def set_controls(self, controls: Union[np.ndarray, 'cp.ndarray', 'torch.Tensor']):
         """
         Set control inputs for all instances.
-        
+
         Args:
             controls: Control array [n_instances, CONTROL_DIM]
+                     Supports legacy 4-element controls or full 6-element controls
         """
+        # Convert to NumPy first for consistent handling (avoids CuPy implicit conversion errors)
         if TORCH_AVAILABLE and isinstance(controls, torch.Tensor):
-            if controls.is_cuda and self.use_gpu:
-                self.controls = cp.asarray(controls)
-            else:
-                self.controls = self.xp.asarray(controls.cpu().numpy(), dtype=np.float32)
+            ctrl_np = controls.detach().cpu().numpy().astype(np.float32)
+        elif CUPY_AVAILABLE and isinstance(controls, cp.ndarray):
+            ctrl_np = controls.get().astype(np.float32)
         else:
-            self.controls = self.xp.asarray(controls, dtype=np.float32)
+            ctrl_np = np.asarray(controls, dtype=np.float32)
+
+        # Ensure 2D array
+        if ctrl_np.ndim == 1:
+            ctrl_np = ctrl_np.reshape(1, -1)
+
+        # Convert to target backend (GPU or CPU)
+        ctrl = self.xp.asarray(ctrl_np, dtype=np.float32)
+
+        # Handle legacy 4-control format (throttle, aileron, elevator, rudder)
+        if ctrl.shape[-1] == 4:
+            self.controls[:, :4] = ctrl
+            # Keep existing flap/spoiler settings (default 0)
+        elif ctrl.shape[-1] >= 6:
+            self.controls[:] = ctrl[:, :CONTROL_DIM]
+        else:
+            raise ValueError(f"Controls must have 4 or 6 elements, got {ctrl.shape[-1]}")
     
     def step(self):
         """Advance simulation by one time step using selected integration method."""
@@ -281,6 +310,16 @@ class FlightSimulator:
         for _ in range(n_steps):
             self.step()
     
+    
+    def set_flaps(self, flap_setting: float):
+        """Set flap deflection for all instances (0-1)."""
+        xp = self.xp
+        self.controls[:, ControlIndex.FLAP] = xp.clip(flap_setting, 0.0, 1.0)
+    
+    def set_spoilers(self, spoiler_setting: float):
+        """Set spoiler deflection for all instances (0-1)."""
+        xp = self.xp
+        self.controls[:, ControlIndex.SPOILER] = xp.clip(spoiler_setting, 0.0, 1.0)
     def _compute_derivatives(self, states: 'np.ndarray') -> 'np.ndarray':
         """Compute state derivatives for all instances."""
         xp = self.xp
@@ -302,6 +341,8 @@ class FlightSimulator:
         da = self.controls[:, ControlIndex.AILERON]
         de = self.controls[:, ControlIndex.ELEVATOR]
         dr = self.controls[:, ControlIndex.RUDDER]
+        flap = xp.clip(self.controls[:, ControlIndex.FLAP], 0.0, 1.0)
+        spoiler = xp.clip(self.controls[:, ControlIndex.SPOILER], 0.0, 1.0)
         
         # Atmosphere
         altitude = xp.maximum(0.0, -z)
@@ -326,9 +367,9 @@ class FlightSimulator:
         longi = self.params.longi
         latdi = self.params.latdi
         
-        CL = longi.CL0 + longi.CLa * alpha + longi.CLq * qhat + longi.CLde * de
-        CD = longi.CD0 + longi.K * CL**2
-        Cm = longi.Cm0 + longi.Cma * alpha + longi.Cmq * qhat + longi.Cmde * de
+        CL = longi.CL0 + longi.CLa * alpha + longi.CLq * qhat + longi.CLde * de + longi.dCL_flap * flap + longi.dCL_spoiler * spoiler
+        CD = longi.CD0 + longi.K * CL**2 + longi.dCD_flap * flap + longi.dCD_spoiler * spoiler
+        Cm = longi.Cm0 + longi.Cma * alpha + longi.Cmq * qhat + longi.Cmde * de + longi.dCm_flap * flap
         
         CY = latdi.CYb * beta + latdi.CYp * phat + latdi.CYr * rhat + latdi.CYdr * dr
         Cl = latdi.Clb * beta + latdi.Clp * phat + latdi.Clr * rhat + latdi.Clda * da
@@ -426,37 +467,109 @@ class FlightSimulator:
         state_dot = self._compute_derivatives(self.states)
         self.states += self.dt * state_dot
         self._normalize_angles()
+        self._enforce_ground_contact()
     
     def _step_rk2(self):
         """RK2 (Heun) integration step."""
         xp = self.xp
-        
+
         k1 = self._compute_derivatives(self.states)
         k2 = self._compute_derivatives(self.states + self.dt * k1)
-        
+
         self.states += 0.5 * self.dt * (k1 + k2)
         self._normalize_angles()
+        self._enforce_ground_contact()
     
     def _step_rk4(self):
         """RK4 integration step."""
         xp = self.xp
         dt = self.dt
-        
+
         k1 = self._compute_derivatives(self.states)
         k2 = self._compute_derivatives(self.states + 0.5 * dt * k1)
         k3 = self._compute_derivatives(self.states + 0.5 * dt * k2)
         k4 = self._compute_derivatives(self.states + dt * k3)
-        
+
         self.states += (dt / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
         self._normalize_angles()
+        self._enforce_ground_contact()
     
     def _normalize_angles(self):
         """Normalize Euler angles to [-pi, pi]."""
         xp = self.xp
         pi = xp.pi
-        
+
         for idx in [StateIndex.PHI, StateIndex.THETA, StateIndex.PSI]:
             self.states[:, idx] = xp.mod(self.states[:, idx] + pi, 2*pi) - pi
+
+    def _enforce_ground_contact(self):
+        """Enforce ground contact - prevent aircraft from going underground.
+
+        In NED coordinates:
+        - Z = 0 is ground level
+        - Z > 0 would be underground (not allowed)
+        - Z < 0 is above ground (altitude = -Z)
+        """
+        xp = self.xp
+
+        # Get current ground state
+        z = self.states[:, StateIndex.Z]
+        w = self.states[:, StateIndex.W]  # Body Z velocity
+        theta = self.states[:, StateIndex.THETA]  # Pitch
+
+        # Find instances that are at or below ground (z >= 0)
+        on_ground = z >= 0.0
+
+        if xp.any(on_ground):
+            # Clamp Z to ground level
+            self.states[:, StateIndex.Z] = xp.minimum(z, 0.0)
+
+            # For grounded aircraft, prevent downward motion
+            # In NED, positive W contributes to positive z_dot (going down)
+            # We need to check the vertical velocity component in NED
+            cos_theta = xp.cos(theta)
+            sin_theta = xp.sin(theta)
+            u = self.states[:, StateIndex.U]
+
+            # Approximate NED z_dot = -sin(theta)*u + cos(theta)*w
+            z_dot_approx = -sin_theta * u + cos_theta * w
+
+            # If on ground and moving downward, zero out the downward velocity
+            going_down = z_dot_approx > 0
+            needs_correction = on_ground & going_down
+
+            if xp.any(needs_correction):
+                # Zero out W component for grounded aircraft moving down
+                self.states[:, StateIndex.W] = xp.where(needs_correction, 0.0, w)
+
+                # Also limit pitch to prevent nose diving through ground
+                # Max pitch down on ground is about -5 degrees
+                max_pitch_down = -0.087  # -5 degrees in radians
+                self.states[:, StateIndex.THETA] = xp.where(
+                    needs_correction & (theta < max_pitch_down),
+                    max_pitch_down,
+                    theta
+                )
+
+            # Apply wheel brakes when on ground
+            # Brake control: 0 = no brakes, 1 = full brakes
+            # Deceleration from brakes: ~3 m/s^2 at full brakes (typical light aircraft)
+            brake_input = self.controls[:, ControlIndex.BRAKE]
+            u = self.states[:, StateIndex.U]
+            
+            # Only apply brakes when moving forward and on ground
+            moving_forward = u > 1.0  # m/s threshold
+            apply_brakes = on_ground & moving_forward & (brake_input > 0.01)
+            
+            if xp.any(apply_brakes):
+                # Brake deceleration proportional to brake input
+                # Max deceleration ~3 m/s^2, scaled by dt
+                max_brake_decel = 3.0 * self.dt  # velocity reduction per step
+                decel = brake_input * max_brake_decel
+                
+                # Reduce forward velocity
+                new_u = xp.maximum(u - decel, 0.0)
+                self.states[:, StateIndex.U] = xp.where(apply_brakes, new_u, u)
     
     def get_states(self) -> np.ndarray:
         """Get current states as NumPy array."""
