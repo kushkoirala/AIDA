@@ -221,6 +221,26 @@ def run_xc_flight(dt=0.02, save_dataset=True, start_phase="ground_roll", sim_spe
 
     try:
         while sim_time < max_time:
+            # Check for override commands from chatbot
+            cmd = get_command()
+            if cmd:
+                print(f"[OVERRIDE] Received command: {cmd}")
+                if cmd.get('type') == 'override':
+                    action_type = cmd.get('action')
+                    value = cmd.get('value')
+                    if action_type == 'set_altitude' and value is not None:
+                        controller.override_altitude = float(value) * 0.3048  # ft to m
+                        controller.override_active = True
+                        print(f"[OVERRIDE] Setting altitude to {value} ft")
+                    elif action_type == 'set_heading' and value is not None:
+                        controller.override_heading = float(value)
+                        controller.override_active = True
+                        print(f"[OVERRIDE] Setting heading to {value} deg")
+                    elif action_type == 'land':
+                        controller.override_land_target = cmd.get('target', 'KHUT')
+                        controller.override_active = True
+                        print(f"[OVERRIDE] Landing at {controller.override_land_target}")
+
             state = dynamics.get_states()[0]
             action = controller.compute_action(state, sim_time)
             dynamics.set_controls(action.reshape(1, -1))
@@ -350,7 +370,7 @@ async def main_async(dt):
     print(f"Open browser to http://{local_ip}:8000")
     print("="*70)
 
-    sim_thread = threading.Thread(target=run_xc_flight, args=(dt, True, start_phase, 3.0), daemon=True)  # 3x speed
+    sim_thread = threading.Thread(target=run_xc_flight, args=(dt, True, start_phase, 2.0), daemon=True)  # 2x speed
     sim_thread.start()
 
     try:

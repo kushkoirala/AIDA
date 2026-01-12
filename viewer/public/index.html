@@ -103,7 +103,8 @@
     /* Hide old compass elements */
     #compass-tape, #heading-value { display: none; }
 
-    #flight-info {
+    /* Pilot/Mode indicator (top right) */
+    #pilot-info {
       position: absolute;
       top: 12px;
       right: 12px;
@@ -112,12 +113,34 @@
       padding: 10px 14px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.35);
       display: flex;
-      gap: 20px;
+      gap: 16px;
+      z-index: 60;
     }
-    .flight-param { text-align: center; }
-    .flight-param .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-    .flight-param .value { font-size: 18px; font-weight: 600; color: var(--text); }
-    .flight-param .unit { font-size: 10px; color: var(--muted); }
+    .pilot-section, .sim-section { text-align: center; }
+    .pilot-label, .sim-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+    .pilot-value { font-size: 14px; font-weight: 700; color: var(--ok); padding: 2px 8px; border-radius: 4px; background: rgba(52, 211, 153, 0.15); }
+    .pilot-value.ai { color: var(--accent); background: rgba(125, 211, 252, 0.15); }
+    .pilot-value.hybrid { color: var(--warn); background: rgba(251, 191, 36, 0.15); }
+    .sim-value { font-size: 14px; font-weight: 600; color: var(--text); }
+
+    /* Flight data tape on left side of attitude indicator */
+    .flight-tape {
+      position: absolute;
+      width: 38px;
+      height: 120px;
+      background: rgba(0,0,0,0.7);
+      border-radius: 4px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 4px 0;
+    }
+    .flight-tape.left { left: -50px; top: 50%; transform: translateY(-50%); }
+    .flight-tape.right { right: -50px; top: 50%; transform: translateY(-50%); }
+    .tape-label { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .tape-value { font-size: 16px; font-weight: 700; color: var(--text); margin: 2px 0; }
+    .tape-unit { font-size: 8px; color: var(--muted); }
     #nav-info {
       z-index: 40;
       position: absolute;
@@ -379,18 +402,39 @@
       <div id="compass-arc-inner"></div>
       <div id="compass-arc-pointer"></div>
     </div>
-    <!-- Attitude Indicator (Artificial Horizon) with heading -->
-    <div id="attitude-indicator">
-      <div id="attitude-horizon"></div>
-      <div id="attitude-overlay"></div>
-      <div id="attitude-wings">
-        <div class="wing-marker left"></div>
-        <div class="wing-marker center"></div>
-        <div class="wing-marker right"></div>
+    <!-- Attitude Indicator (Artificial Horizon) with flight tapes -->
+    <div id="attitude-container" style="position: relative; display: inline-block;">
+      <!-- Speed tape (left side) -->
+      <div class="flight-tape left">
+        <div class="tape-label">SPD</div>
+        <div class="tape-value" id="spd-value">0</div>
+        <div class="tape-unit">KTS</div>
+        <div style="margin-top: 8px;"></div>
+        <div class="tape-label">AOA</div>
+        <div class="tape-value" id="aoa-value" style="font-size: 13px;">0.0</div>
+        <div class="tape-unit">DEG</div>
       </div>
-      <div id="roll-pointer"></div>
-      <div id="heading-center">000°</div>
-      <div id="vs-center"><span class="label">VS</span><span id="vs-center-value">0</span> fpm</div>
+
+      <!-- Attitude Indicator -->
+      <div id="attitude-indicator">
+        <div id="attitude-horizon"></div>
+        <div id="attitude-overlay"></div>
+        <div id="attitude-wings">
+          <div class="wing-marker left"></div>
+          <div class="wing-marker center"></div>
+          <div class="wing-marker right"></div>
+        </div>
+        <div id="roll-pointer"></div>
+        <div id="heading-center">000°</div>
+        <div id="vs-center"><span class="label">VS</span><span id="vs-center-value">0</span> fpm</div>
+      </div>
+
+      <!-- Altitude tape (right side) -->
+      <div class="flight-tape right">
+        <div class="tape-label">ALT</div>
+        <div class="tape-value" id="alt-value">0</div>
+        <div class="tape-unit">FT</div>
+      </div>
     </div>
     <div id="phase-display">INITIALIZING</div>
     <!-- Hidden old elements for compatibility -->
@@ -401,21 +445,15 @@
     <div id="heading-value" style="display:none;">000</div>
   </div>
 
-  <div id="flight-info">
-    <div class="flight-param">
-      <div class="label">ALT</div>
-      <div class="value" id="alt-value">0</div>
-      <div class="unit">ft</div>
+  <!-- Pilot/Mode indicator (top right) -->
+  <div id="pilot-info">
+    <div class="pilot-section">
+      <div class="pilot-label">PILOT</div>
+      <div class="pilot-value" id="pilot-mode">EXPERT</div>
     </div>
-    <div class="flight-param">
-      <div class="label">SPD</div>
-      <div class="value" id="spd-value">0</div>
-      <div class="unit">kts</div>
-    </div>
-    <div class="flight-param">
-      <div class="label">AoA</div>
-      <div class="value" id="aoa-value">0</div>
-      <div class="unit">deg</div>
+    <div class="sim-section">
+      <div class="sim-label">SIM</div>
+      <div class="sim-value" id="sim-speed">1x</div>
     </div>
   </div>
 <div id="nav-info">    <div class="nav-section departure"><div class="nav-label">FROM</div><div class="nav-value">SN65</div><div class="nav-sub">RWY 35</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">DIST</div><div class="nav-value" id="nav-distance">--</div><div class="nav-sub" id="nav-eta">ETA --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">CRS</div><div class="nav-value">338</div><div class="nav-sub">TRUE</div></div>    <div class="nav-divider"></div>    <div class="nav-section arrival"><div class="nav-label">TO</div><div class="nav-value">KHUT</div><div class="nav-sub">RWY 31</div></div>  </div>
@@ -467,6 +505,7 @@
   </div>
 
   <script src="engine_sound.js"></script>
+  <script src="chatbot.js"></script>
   <canvas id="c"></canvas>
 
   <!-- Camera View Selector -->
@@ -877,6 +916,8 @@
       const rollPointer = document.getElementById('roll-pointer');
       const headingCenter = document.getElementById('heading-center');
       const vsCenterValue = document.getElementById('vs-center-value');
+      const pilotMode = document.getElementById('pilot-mode');
+      const simSpeed = document.getElementById('sim-speed');
 
       let isFollowing = false;
       const followOffset = new THREE.Vector3(-30, 15, 15);
@@ -884,14 +925,14 @@
       // Camera mode system
       let cameraMode = 'free'; // 'free', 'chase', 'side', 'top', 'front', 'cockpit'
       const cameraOffsets = {
-        chase: new THREE.Vector3(0, 8, 40),      // Behind and above
-        side: new THREE.Vector3(50, 10, 0),       // Left side view
-        top: new THREE.Vector3(0, 100, 0),        // Directly above
-        front: new THREE.Vector3(0, 5, -50),      // In front looking back
+        chase: new THREE.Vector3(0, 6, 30),       // Comfortable distance behind
+        side: new THREE.Vector3(25, 6, 0),        // Side view
+        top: new THREE.Vector3(0, 50, 0),         // Above
+        front: new THREE.Vector3(0, 4, -25),      // In front
         cockpit: new THREE.Vector3(0, 2.5, -2)    // Inside cockpit
       };
       const cameraLookAhead = {
-        chase: new THREE.Vector3(0, 0, -50),      // Look ahead of aircraft
+        chase: new THREE.Vector3(0, 0, -20),      // Look ahead of aircraft
         side: new THREE.Vector3(0, 0, 0),          // Look at aircraft
         top: new THREE.Vector3(0, 0, 0),           // Look at aircraft
         front: new THREE.Vector3(0, 0, 50),        // Look at aircraft
@@ -1080,6 +1121,35 @@ function updateHud(data, viewerPos) {
             navEtaEl.textContent = 'ETA --';
           }
         }
+
+        // Update pilot mode indicator
+        if (pilotMode) {
+          // Determine pilot mode from phase or explicit field
+          let mode = 'EXPERT';
+          let modeClass = '';
+          if (data.pilot_mode) {
+            mode = data.pilot_mode.toUpperCase();
+          } else if (data.phase) {
+            // Infer from phase: if phase contains "RESIDUAL" or model is loaded, it's hybrid
+            const phaseLower = (data.phase || '').toLowerCase();
+            if (phaseLower.includes('residual') || phaseLower.includes('nn') || phaseLower.includes('ai')) {
+              mode = 'AI+EXPERT';
+              modeClass = 'hybrid';
+            } else if (phaseLower.includes('ppo') || phaseLower.includes('neural')) {
+              mode = 'AI';
+              modeClass = 'ai';
+            }
+          }
+          pilotMode.textContent = mode;
+          pilotMode.className = 'pilot-value' + (modeClass ? ' ' + modeClass : '');
+        }
+
+        // Update simulation speed
+        if (simSpeed && typeof data.sim_speed === 'number') {
+          simSpeed.textContent = data.sim_speed.toFixed(0) + 'x';
+        } else if (simSpeed && typeof data.speed_multiplier === 'number') {
+          simSpeed.textContent = data.speed_multiplier.toFixed(0) + 'x';
+        }
       }
 
       function connectWs() {
@@ -1152,7 +1222,12 @@ function updateHud(data, viewerPos) {
       const soundBtn = document.getElementById("soundBtn");
       soundBtn.addEventListener("click", () => {
         if (window.engineSoundSystem) {
-          window.engineSoundSystem.toggle();
+          const isOn = window.engineSoundSystem.toggle();
+          soundBtn.textContent = isOn ? 'Sound ON' : 'Sound OFF';
+          soundBtn.classList.toggle('active', isOn);
+          console.log('[Viewer] Sound toggled:', isOn);
+        } else {
+          console.error('[Viewer] engineSoundSystem not found');
         }
       });
 
@@ -1312,8 +1387,8 @@ function updateHud(data, viewerPos) {
               const worldLookAhead = lookAhead.clone().applyQuaternion(modelGroup.quaternion);
               const targetLookAt = modelGroup.position.clone().add(worldLookAhead);
 
-              // Smooth camera motion (faster for cockpit view)
-              const lerpSpeed = cameraMode === 'cockpit' ? 0.2 : 0.08;
+              // Smooth camera motion (faster for chase/cockpit to reduce lag)
+              const lerpSpeed = (cameraMode === 'cockpit' || cameraMode === 'chase') ? 0.5 : 0.15;
               camera.position.lerp(targetCamPos, lerpSpeed);
 
               // For top view, keep camera oriented with North up
@@ -1322,7 +1397,7 @@ function updateHud(data, viewerPos) {
                 camera.lookAt(modelGroup.position);
               } else {
                 camera.up.set(0, 1, 0);
-                // Smooth look-at transition
+                // Smooth look-at transition (use same lerpSpeed for consistency)
                 const currentLookAt = new THREE.Vector3();
                 camera.getWorldDirection(currentLookAt);
                 currentLookAt.multiplyScalar(100).add(camera.position);

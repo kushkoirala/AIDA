@@ -2,9 +2,11 @@
 
 **Advanced Reinforcement Learning Framework for Autonomous Fixed-Wing Aircraft Control**
 
+[![Version 1.0](https://img.shields.io/badge/version-1.0-brightgreen.svg)](#)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![CUDA 12.x](https://img.shields.io/badge/CUDA-12.x-green.svg)](https://developer.nvidia.com/cuda-toolkit)
 [![Stable-Baselines3](https://img.shields.io/badge/SB3-2.x-orange.svg)](https://stable-baselines3.readthedocs.io/)
+[![Phi-3 LLM](https://img.shields.io/badge/LLM-Phi--3-purple.svg)](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct)
 
 ---
 
@@ -16,6 +18,7 @@ AIDA is a research framework that combines classical control theory with modern 
 
 | Milestone | Description | Date |
 |-----------|-------------|------|
+| **LLM Flight Commands** | Natural language control via Phi-3 ("climb to 7000", "heading 270") | Jan 2026 |
 | **Cross-Country Flight** | 31 NM autonomous flight SN65 → KHUT with precision landing | Jan 2026 |
 | **Residual RL V2** | 7-control neural network learns corrections to expert | Jan 2026 |
 | **GPU-Accelerated Simulation** | 569,000 steps/sec with 10,000 parallel instances | Dec 2025 |
@@ -26,12 +29,13 @@ AIDA is a research framework that combines classical control theory with modern 
 ## Table of Contents
 
 1. [System Architecture](#system-architecture)
-2. [Neural Network Architecture](#neural-network-architecture)
-3. [Algorithms & Training Methods](#algorithms--training-methods)
-4. [Development Environment](#development-environment)
-5. [Flight Demonstrations](#flight-demonstrations)
-6. [Quick Start](#quick-start)
-7. [Project Structure](#project-structure)
+2. [LLM Flight Commands](#llm-flight-commands)
+3. [Neural Network Architecture](#neural-network-architecture)
+4. [Algorithms & Training Methods](#algorithms--training-methods)
+5. [Development Environment](#development-environment)
+6. [Flight Demonstrations](#flight-demonstrations)
+7. [Quick Start](#quick-start)
+8. [Project Structure](#project-structure)
 
 ---
 
@@ -49,6 +53,63 @@ The AIDA system is organized into four main layers: Training, Inference, Visuali
 | **Inference** | Policy Network, Expert Controller | Real-time flight control |
 | **Visualization** | 3D WebGL, TensorBoard, Telemetry | Monitoring and debugging |
 | **Simulation** | GPU Flight Dynamics, Gymnasium Env | High-fidelity physics |
+
+---
+
+## LLM Flight Commands
+
+AIDA V1 introduces **natural language flight control** via an integrated chatbot interface. Pilots can issue commands in plain English, which are parsed by the Phi-3 Mini LLM and executed by the autopilot.
+
+### Supported Commands
+
+| Command Type | Examples | Flight Phase |
+|--------------|----------|--------------|
+| **Heading** | "turn to heading 270", "fly heading 090" | CLIMB, CRUISE |
+| **Altitude** | "climb to 7000", "descend to 4000 feet" | CRUISE |
+| **Landing** | "land at KHUT", "resume landing" | CRUISE |
+| **Status** | "status", "where am I" | Any |
+
+### Architecture
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Chatbot   │────▶│  LLM Server │────▶│  Telemetry  │────▶│  Controller │
+│   (UI)      │     │  (Phi-3)    │     │  WebSocket  │     │  (Expert)   │
+│  Port 8000  │     │  Port 8766  │     │  Port 8765  │     │             │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+     │                    │                    │                    │
+     │    "climb 7000"    │                    │                    │
+     │───────────────────▶│                    │                    │
+     │                    │  {action: "set_altitude", value: 7000}  │
+     │                    │───────────────────▶│───────────────────▶│
+     │    "Roger, climbing to 7,000 feet"      │                    │
+     │◀───────────────────│                    │     Aircraft       │
+     │                    │                    │     Responds       │
+```
+
+### Safety Features
+
+- **Altitude Limits**: Min 1,500 ft AGL, Max 12,000 ft (service ceiling)
+- **Phase Restrictions**: Overrides disabled during approach/landing for safety
+- **Validation**: All commands validated before execution
+- **Pilot Acknowledgements**: Realistic pilot-style responses ("Roger, turning left to heading 270")
+
+### Running LLM Commands
+
+```bash
+# Terminal 1: HTTP server for viewer
+cd /home/AIDA/viewer/public && python3 -m http.server 8000
+
+# Terminal 2: LLM command server
+source .venv-linux/bin/activate
+python3 llm/llm_command_server.py --host 0.0.0.0 --port 8766
+
+# Terminal 3: Flight simulation
+python3 scripts/run_xc_sn65_khut.py
+
+# Open browser: http://localhost:8000
+# Use chatbot in bottom-right corner
+```
 
 ---
 
@@ -321,7 +382,9 @@ AIDA/
 │
 ├── viewer/                      # 3D visualization
 │   └── public/
-│       └── index.html           # WebGL viewer + telemetry
+│       ├── index.html           # WebGL viewer + telemetry
+│       ├── chatbot.js           # LLM command chatbot UI
+│       └── chatbot.css          # Chatbot styling
 │
 ├── models/                      # Trained models (git tracked)
 │   └── residual_ppo_v2_7ctrl.zip
@@ -329,8 +392,8 @@ AIDA/
 ├── checkpoints/                 # Training checkpoints (not in git)
 │
 ├── llm/                         # LLM integration (Phi-3)
-│   ├── flight_commands.py       # Natural language commands
-│   └── command_executor.py      # Command execution
+│   ├── llm_command_server.py    # WebSocket server for natural language commands
+│   └── models/                  # Phi-3 GGUF model files
 │
 └── docs/                        # Documentation
     ├── img/                     # Architecture diagrams
@@ -351,6 +414,14 @@ AIDA/
 ## License
 
 Internal research project - Kushal Koirala
+
+---
+
+## Version History
+
+| Version | Date | Highlights |
+|---------|------|------------|
+| **V1.0** | Jan 11, 2026 | LLM flight commands, cross-country demo, residual RL V2 |
 
 ---
 

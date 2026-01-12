@@ -106,6 +106,12 @@ class TriangleInterceptController:
         self.phase_start_time = 0.0
         self.has_turned_to_cruise = False
 
+        # LLM Override mode
+        self.override_active = False
+        self.override_heading = None  # Target heading in degrees
+        self.override_altitude = None  # Target altitude in meters
+        self.override_land_target = None  # Airport code (e.g., "KHUT")
+
         # Control gains
         self.kp_pitch = 0.8
         self.kd_pitch = 0.6
@@ -215,13 +221,29 @@ class TriangleInterceptController:
         elif self.phase == XCPhase.CLIMB:
             if altitude_ft > self.turn_to_cruise_altitude_ft:
                 self.has_turned_to_cruise = True
-            hdg = self.cruise_heading if self.has_turned_to_cruise else self.departure_heading
+
+            # Check for LLM heading override
+            if self.override_active and self.override_heading is not None:
+                hdg = np.deg2rad(self.override_heading)
+            else:
+                hdg = self.cruise_heading if self.has_turned_to_cruise else self.departure_heading
+
             return np.array([1.0, self._heading_control(hdg, psi, phi, p),
                            self._pitch_control(self.pitch_climb, theta, q), 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.CRUISE_TO_TP:
-            bearing = np.arctan2(self.tp_y_ft - y_ft, self.tp_x_ft - x_ft)
-            alt_error_ft = altitude_ft - self.cruise_altitude_ft
+            # Check for LLM overrides
+            if self.override_active and self.override_heading is not None:
+                bearing = np.deg2rad(self.override_heading)
+            else:
+                bearing = np.arctan2(self.tp_y_ft - y_ft, self.tp_x_ft - x_ft)
+
+            # Use override altitude if set
+            if self.override_active and self.override_altitude is not None:
+                target_altitude_ft = self.override_altitude * M_TO_FT
+            else:
+                target_altitude_ft = self.cruise_altitude_ft
+            alt_error_ft = altitude_ft - target_altitude_ft
 
             # Altitude hold using vertical speed feedback (autopilot-style)
             # Step 1: Compute target vertical speed based on altitude error
