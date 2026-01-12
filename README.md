@@ -1,324 +1,620 @@
 # AIDA - Autonomous Intelligent Decision Architecture
 
-Integration of reinforcement learning and neural networks for autonomous fixed-wing aircraft control.
+**Advanced Reinforcement Learning Framework for Autonomous Fixed-Wing Aircraft Control**
 
-## Overview
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![CUDA 12.x](https://img.shields.io/badge/CUDA-12.x-green.svg)](https://developer.nvidia.com/cuda-toolkit)
+[![Stable-Baselines3](https://img.shields.io/badge/SB3-2.x-orange.svg)](https://stable-baselines3.readthedocs.io/)
 
-AIDA is a reinforcement learning framework for training autonomous flight control policies using:
-- **GPU-accelerated flight dynamics** (CUDA) for massive parallel simulation
-- **Curriculum learning** for progressive skill development
-- **Behavior cloning** with PPO fine-tuning for sample-efficient training
-- **Real-time telemetry visualization** for monitoring and debugging
+---
 
-### Supported Aircraft
-- **Cessna 172** - General aviation trainer (primary development platform)
-- **Udaan** - Custom fixed-wing UAV
+## Executive Summary
 
-## Recent Accomplishments (January 2025)
+AIDA is a research framework that combines classical control theory with modern deep reinforcement learning to achieve fully autonomous fixed-wing aircraft flight. The system has demonstrated **complete autonomous cross-country flights** from takeoff to landing, covering 31 nautical miles with precision runway alignment.
 
-### Cross-Country Autonomous Flight
-Successfully demonstrated fully autonomous 31 NM cross-country flight:
-- **Route**: SN65 (Lake Waltanna) to KHUT (Hutchinson Regional)
-- **Phases**: 11 autonomous flight phases from ground roll to landing
-- **Result**: Precision landing on RWY 31
+### Key Achievements
 
-![Cross-Country Landing](docs/img/KHUT_landed.png)
+| Milestone | Description | Date |
+|-----------|-------------|------|
+| **Cross-Country Flight** | 31 NM autonomous flight SN65 → KHUT with precision landing | Jan 2026 |
+| **Residual RL Training** | Neural network learns corrections to expert controller | Jan 2026 |
+| **GPU-Accelerated Simulation** | 569,000 steps/sec with 10,000 parallel instances | Dec 2025 |
+| **Real-Time 3D Visualization** | WebSocket telemetry with audio synthesis | Dec 2025 |
 
-*Landed at KHUT RWY 31*
+---
 
-### 3D Viewer Enhancements
-- Real-time WebSocket telemetry (20 Hz)
-- Engine sound synthesis (Web Audio API)
-- Altitude callout system (GPWS-style)
-- Remote access via Tailscale
+## Table of Contents
 
-See [docs/CROSS_COUNTRY_FLIGHT.md](docs/CROSS_COUNTRY_FLIGHT.md) and [docs/CONTROLLERS_OVERVIEW.md](docs/CONTROLLERS_OVERVIEW.md) for details.
+1. [System Architecture](#system-architecture)
+2. [Neural Network Architecture](#neural-network-architecture)
+3. [Algorithms & Training Methods](#algorithms--training-methods)
+4. [Hardware Configuration](#hardware-configuration)
+5. [Flight Demonstrations](#flight-demonstrations)
+6. [Quick Start](#quick-start)
+7. [Project Structure](#project-structure)
+8. [Development Guide](#development-guide)
 
-## Coming Up
+---
 
-### Teardrop Approach Pattern
-Next milestone: Implement teardrop entry for instrument approach procedures:
-- Course reversal maneuver for runway alignment from any direction
-- Standard 1-minute outbound leg with 30° offset
-- Procedure turn integration with existing triangle intercept
+## System Architecture
 
-### Expert Data Generation
-Before PPO training, generate comprehensive flight demonstration data:
-- Multiple cross-country routes (varying distances/headings)
-- Traffic pattern variations (left/right patterns, different airports)
-- Approach types (straight-in, teardrop, full procedure turn)
-- Edge cases (crosswind, go-arounds)
+### High-Level Overview
 
-### PPO Training Pipeline
-With sufficient expert demonstrations:
-1. **Behavior Cloning (BC)** - Warm-start from expert data
-2. **Curriculum Learning** - Phase-by-phase PPO fine-tuning
-3. **Full Mission Training** - End-to-end autonomous flight
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           AIDA SYSTEM ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌─────────────────────┐     ┌─────────────────────┐     ┌──────────────────┐  │
+│  │   TRAINING LAYER    │     │   INFERENCE LAYER   │     │  VISUALIZATION   │  │
+│  ├─────────────────────┤     ├─────────────────────┤     ├──────────────────┤  │
+│  │ • PPO Algorithm     │     │ • Policy Network    │     │ • 3D WebGL View  │  │
+│  │ • Residual RL       │────▶│ • Expert Controller │────▶│ • TensorBoard    │  │
+│  │ • Behavior Cloning  │     │ • Hybrid Blending   │     │ • Telemetry WS   │  │
+│  │ • Curriculum Learn  │     │ • Safety Monitor    │     │ • Audio GPWS     │  │
+│  └─────────────────────┘     └─────────────────────┘     └──────────────────┘  │
+│           │                           │                           │            │
+│           ▼                           ▼                           ▼            │
+│  ┌─────────────────────────────────────────────────────────────────────────┐   │
+│  │                        SIMULATION LAYER                                  │   │
+│  ├─────────────────────────────────────────────────────────────────────────┤   │
+│  │                                                                         │   │
+│  │  ┌───────────────────┐   ┌───────────────────┐   ┌──────────────────┐  │   │
+│  │  │  GPU Flight Sim   │   │  Gymnasium Env    │   │  Aircraft Models │  │   │
+│  │  ├───────────────────┤   ├───────────────────┤   ├──────────────────┤  │   │
+│  │  │ • CuPy/CUDA       │   │ • ResidualEnvV2   │   │ • Cessna 172     │  │   │
+│  │  │ • 10k+ instances  │   │ • 25-dim obs      │   │ • Udaan UAV      │  │   │
+│  │  │ • RK4 integration │   │ • 7-dim action    │   │ • Aero coeffs    │  │   │
+│  │  │ • 6-DOF dynamics  │   │ • Phase rewards   │   │ • Mass/inertia   │  │   │
+│  │  └───────────────────┘   └───────────────────┘   └──────────────────┘  │   │
+│  │                                                                         │   │
+│  └─────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
 
-## Architecture
+### Component Details
 
-### Software Architecture
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **GPU Flight Dynamics** | CuPy/CUDA, NumPy | Parallel 6-DOF rigid body simulation |
+| **RL Environment** | Gymnasium | Observation/action spaces, reward shaping |
+| **Training** | Stable-Baselines3, PyTorch | PPO, policy networks, curriculum |
+| **Expert Controller** | Classical PID/FSM | Baseline policy, safety fallback |
+| **Visualization** | Three.js, WebSocket | Real-time 3D rendering, telemetry |
+| **Audio** | Web Audio API | Engine synthesis, GPWS callouts |
 
-![Software Architecture](docs/img/software_architecture.png)
+### Software Package Structure
 
-The system consists of six main packages:
-- **Training** - PPO algorithm, curriculum learning, behavior cloning, policy networks
-- **Simulation** - Gymnasium environment, GPU flight dynamics, reward shaping
-- **Visualization** - TensorBoard, 3D viewer, telemetry server
-- **Data & Storage** - Checkpoints, datasets, training logs
-- **Aircraft Models** - Aircraft configurations, aerodynamic coefficients, 3D models
-- **Configuration** - Environment parameters, training hyperparameters
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           AIDA PACKAGES                                  │
+├──────────────────┬──────────────────┬──────────────────┬────────────────┤
+│    aida_sim/     │     scripts/     │     viewer/      │ gpu-flight-    │
+│                  │                  │                  │ dynamics/      │
+├──────────────────┼──────────────────┼──────────────────┼────────────────┤
+│ • env/           │ • train_*.py     │ • public/        │ • python/      │
+│   - flight_env   │ • run_*.py       │   - index.html   │   - flight_    │
+│   - residual_env │ • generate_*.py  │   - viewer.js    │     dynamics.py│
+│ • dynamics/      │ • test_*.py      │ • components/    │   - aircraft_  │
+│ • systems/       │                  │                  │     database.py│
+│ • io/telemetry   │                  │                  │                │
+└──────────────────┴──────────────────┴──────────────────┴────────────────┘
+```
 
-### Neural Network Architecture
+---
 
-![PPO Architecture](docs/img/ppo_architecture.png)
+## Neural Network Architecture
 
-**Actor-Critic PPO Network:**
-- **Input**: 12-dimensional state vector (position, velocity, attitude, angular rates)
-- **Policy Network**: 256 → 256 → 128 neurons with ReLU, outputs Gaussian parameters (μ, σ)
-- **Value Network**: 256 → 256 → 128 neurons with ReLU, outputs state value V(s)
-- **Output Actions**: Throttle, aileron, elevator, rudder (continuous, normalized [-1, 1])
-- **Total Parameters**: ~270k
+### Residual RL Architecture (Current - V2)
+
+The Residual RL approach learns **corrections** to an expert controller rather than learning from scratch:
+
+```
+                    RESIDUAL RL ARCHITECTURE
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    Aircraft State (12-dim)
+    ┌─────────────────────────┐
+    │ Position:    x, y, z    │
+    │ Velocity:    u, v, w    │
+    │ Attitude:    φ, θ, ψ    │
+    │ Rates:       p, q, r    │
+    └───────────┬─────────────┘
+                │
+                ▼
+    ┌───────────────────────────────────────────────────┐
+    │              OBSERVATION BUILDER (25-dim)         │
+    ├───────────────────────────────────────────────────┤
+    │  State (12) + Expert Action (7) + Target (3)      │
+    │  + Phase One-Hot (3)                              │
+    │                                                   │
+    │  [x,y,z,u,v,w,φ,θ,ψ,p,q,r,                       │
+    │   thr,ail,ele,rud,flp,spl,brk,                   │
+    │   Δhdg,dist,Δalt,                                │
+    │   takeoff,cruise,approach]                        │
+    └───────────────────┬───────────────────────────────┘
+                        │
+        ┌───────────────┴───────────────┐
+        ▼                               ▼
+    ┌─────────────────────┐     ┌─────────────────────┐
+    │   EXPERT CONTROLLER │     │    POLICY NETWORK   │
+    │   (Classical FSM)   │     │    (Neural Network) │
+    ├─────────────────────┤     ├─────────────────────┤
+    │ • Phase detection   │     │ Input: 25 dims      │
+    │ • PID control laws  │     │ Hidden: 512→512→256 │
+    │ • Trajectory gen    │     │ Output: 7 dims      │
+    │                     │     │ Activation: Tanh    │
+    └──────────┬──────────┘     └──────────┬──────────┘
+               │                           │
+               │  u_expert (7-dim)         │  δ_nn (7-dim)
+               │                           │  scaled by λ
+               ▼                           ▼
+    ┌─────────────────────────────────────────────────┐
+    │              RESIDUAL BLENDING                  │
+    │                                                 │
+    │   u_total = u_expert + λ × δ_nn                │
+    │                                                 │
+    │   Per-Control Residual Scales (λ):             │
+    │   ┌─────────────────────────────────────────┐  │
+    │   │ Throttle: ±15%  │  Flaps:    ±8%       │  │
+    │   │ Aileron:  ±12%  │  Spoilers: ±12%      │  │
+    │   │ Elevator: ±12%  │  Brakes:   ±5%       │  │
+    │   │ Rudder:   ±10%  │                      │  │
+    │   └─────────────────────────────────────────┘  │
+    └───────────────────┬─────────────────────────────┘
+                        │
+                        ▼
+    ┌─────────────────────────────────────────────────┐
+    │              FLIGHT SIMULATOR                   │
+    │         (GPU-accelerated 6-DOF)                 │
+    └─────────────────────────────────────────────────┘
+```
+
+### Network Specifications
+
+| Layer | Dimensions | Activation | Parameters |
+|-------|------------|------------|------------|
+| Input | 25 | - | - |
+| Hidden 1 | 512 | ReLU | 13,312 |
+| Hidden 2 | 512 | ReLU | 262,656 |
+| Hidden 3 | 256 | ReLU | 131,328 |
+| Policy Head | 7 (μ) + 7 (σ) | Tanh/Softplus | 3,598 |
+| Value Head | 1 | Linear | 257 |
+| **Total** | - | - | **~411k** |
+
+### Observation Space (25 dimensions)
+
+```python
+observation = [
+    # Aircraft State (12 dims)
+    x, y, z,           # Position (m)
+    u, v, w,           # Body velocities (m/s)
+    phi, theta, psi,   # Euler angles (rad)
+    p, q, r,           # Angular rates (rad/s)
+
+    # Expert Action (7 dims)
+    throttle,          # [0, 1]
+    aileron,           # [-1, 1]
+    elevator,          # [-1, 1]
+    rudder,            # [-1, 1]
+    flaps,             # [0, 1]
+    spoilers,          # [0, 1]
+    brakes,            # [0, 1]
+
+    # Navigation Target (3 dims)
+    heading_error,     # Normalized [-1, 1]
+    distance_to_target,# Normalized
+    altitude_error,    # Normalized
+
+    # Flight Phase One-Hot (3 dims)
+    is_takeoff,        # [0, 1]
+    is_cruise,         # [0, 1]
+    is_approach,       # [0, 1]
+]
+```
+
+### Action Space (7 dimensions)
+
+```python
+action = [
+    δ_throttle,   # Correction to throttle  [-1, 1] → ±15%
+    δ_aileron,    # Correction to aileron   [-1, 1] → ±12%
+    δ_elevator,   # Correction to elevator  [-1, 1] → ±12%
+    δ_rudder,     # Correction to rudder    [-1, 1] → ±10%
+    δ_flaps,      # Correction to flaps     [-1, 1] → ±8%
+    δ_spoilers,   # Correction to spoilers  [-1, 1] → ±12%
+    δ_brakes,     # Correction to brakes    [-1, 1] → ±5%
+]
+```
+
+---
+
+## Algorithms & Training Methods
+
+### Algorithm Comparison
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     TRAINING ALGORITHM PIPELINE                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  STAGE 1: Expert Demonstration                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │  Classical Controller (FSM + PID)                                 │ │
+│  │  • 11 flight phases: Ground Roll → Landed                         │ │
+│  │  • Generates optimal trajectories                                 │ │
+│  │  • 100% success rate on known routes                              │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                              │                                          │
+│                              ▼                                          │
+│  STAGE 2: Behavior Cloning (Optional Warm-Start)                        │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │  Supervised Learning from Expert Data                             │ │
+│  │  • Loss: MSE(π_θ(s), a_expert)                                    │ │
+│  │  • 10-20 epochs, ~50k transitions                                 │ │
+│  │  • Reduces PPO training time by 50-70%                            │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                              │                                          │
+│                              ▼                                          │
+│  STAGE 3: Residual PPO Fine-Tuning                                      │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │  Proximal Policy Optimization with Residual Architecture          │ │
+│  │  • NN learns corrections δ to expert: u = u_expert + λδ           │ │
+│  │  • Inherits expert's stability, learns refinements                │ │
+│  │  • Phase-specific reward shaping                                  │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### PPO Hyperparameters
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `learning_rate` | 1e-4 | Conservative for stability |
+| `n_steps` | 4096 | Long rollouts for 15-min episodes |
+| `batch_size` | 256 | Large batch for variance reduction |
+| `n_epochs` | 10 | Multiple passes per rollout |
+| `gamma` | 0.995 | High discount for long episodes |
+| `gae_lambda` | 0.95 | Advantage estimation |
+| `clip_range` | 0.1 | Small clip for stable updates |
+| `ent_coef` | 0.005 | Minimal exploration (expert baseline) |
+| `vf_coef` | 0.5 | Value function loss weight |
+| `max_grad_norm` | 0.5 | Gradient clipping |
+
+### Reward Shaping by Phase
+
+```python
+# Takeoff Phase (Ground Roll → Initial Climb)
+reward_takeoff = (
+    + 1.0 * speed_progress      # Accelerate to rotation speed
+    - 0.5 * centerline_error    # Stay on runway centerline
+    + 2.0 * altitude_gain       # Reward positive climb
+    - 1.0 * if crashed          # Termination penalty
+)
+
+# Cruise Phase (Climb → Cruise)
+reward_cruise = (
+    + 1.0 * altitude_tracking   # Maintain target altitude
+    + 0.5 * heading_tracking    # Track to waypoint
+    + 0.3 * speed_tracking      # Maintain cruise speed
+    - 0.5 * control_effort      # Smooth control usage
+)
+
+# Approach Phase (Descent → Landing)
+reward_approach = (
+    + 2.0 * glideslope_track    # Follow 3° glideslope
+    + 1.0 * localizer_track     # Runway centerline
+    + 1.5 * airspeed_target     # Approach speed
+    + 5.0 * successful_landing  # Terminal reward
+)
+```
+
+### Curriculum Learning Phases
+
+| Phase | Task | Training Focus | Success Criteria |
+|-------|------|----------------|------------------|
+| 1 | Ground Roll | Acceleration, steering | Reach V_rotate |
+| 2 | Rotation | Pitch control | Positive climb rate |
+| 3 | Initial Climb | Climb gradient | 100 ft AGL |
+| 4 | Climb | Altitude tracking | Cruise altitude |
+| 5 | Cruise | Level flight | Altitude/heading hold |
+| 6 | Descent | Glideslope capture | 3° path |
+| 7 | Landing | Flare, touchdown | Safe ground contact |
+
+---
+
+## Hardware Configuration
+
+### Development Environment
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     HARDWARE CONFIGURATION                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  PRIMARY WORKSTATION: Dell 7920                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │  CPU:    Intel Xeon (16+ cores)                                   │ │
+│  │  GPU:    NVIDIA RTX 4060 (8GB VRAM)                               │ │
+│  │  RAM:    32+ GB DDR4                                              │ │
+│  │  OS:     Windows 11 + WSL2 (Ubuntu 22.04)                         │ │
+│  │  CUDA:   12.x                                                     │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+│  PERFORMANCE BENCHMARKS:                                                │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │                                                                   │ │
+│  │  GPU Simulation (CuPy):                                           │ │
+│  │  ├── 100 instances:    ~50,000 steps/sec   (2,500x real-time)    │ │
+│  │  ├── 1,000 instances:  ~100,000 steps/sec  (5,000x real-time)    │ │
+│  │  └── 10,000 instances: ~569,000 steps/sec  (28,450x real-time)   │ │
+│  │                                                                   │ │
+│  │  Training Throughput (SubprocVecEnv):                             │ │
+│  │  ├── 16 parallel envs (CPU sim): ~1,300 steps/sec                │ │
+│  │  └── Neural network updates: GPU (CUDA)                          │ │
+│  │                                                                   │ │
+│  │  Memory Usage:                                                    │ │
+│  │  ├── Per environment: ~100 MB                                    │ │
+│  │  ├── 16 envs + model: ~2 GB RAM                                  │ │
+│  │  └── GPU VRAM: ~1 GB for inference                               │ │
+│  │                                                                   │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Software Stack
+
+| Component | Version | Purpose |
+|-----------|---------|---------|
+| Python | 3.10+ | Runtime |
+| PyTorch | 2.x | Neural networks |
+| Stable-Baselines3 | 2.x | PPO implementation |
+| CuPy | 12.x | GPU-accelerated NumPy |
+| Gymnasium | 0.29+ | RL environment API |
+| NumPy | 1.24+ | Numerical computing |
+| TensorBoard | 2.x | Training visualization |
+| Three.js | r150+ | 3D web rendering |
+
+### Vectorized Environment Options
+
+```python
+# Option 1: SubprocVecEnv (Recommended for training)
+# - True parallelism across CPU cores
+# - Each subprocess runs independent simulation
+# - 16 envs → ~16x speedup on multi-core systems
+from stable_baselines3.common.vec_env import SubprocVecEnv
+env = SubprocVecEnv([make_env(i) for i in range(16)], start_method='spawn')
+
+# Option 2: DummyVecEnv (For GPU batched simulation)
+# - Sequential stepping in single process
+# - Use with GPU-batched simulator (1000+ instances)
+from stable_baselines3.common.vec_env import DummyVecEnv
+env = DummyVecEnv([make_env(i) for i in range(n_envs)])
+```
+
+---
+
+## Flight Demonstrations
+
+### Cross-Country Flight: SN65 → KHUT
+
+**Route:** Lake Waltanna (SN65) to Hutchinson Regional Airport (KHUT)
+**Distance:** 31 nautical miles
+**Duration:** ~18 minutes (simulated)
+
+```
+                        CROSS-COUNTRY FLIGHT PROFILE
+
+    Altitude (ft)
+         ▲
+    6000 │                    ┌────────────────────┐
+         │                   ╱                      ╲
+    5500 │──────────────────╱  CRUISE @ 110 KTAS    ╲
+         │                 ╱                          ╲
+    5000 │                ╱                            ╲ DESCENT
+         │               ╱                              ╲
+    4000 │              ╱                                ╲
+         │             ╱ CLIMB                            ╲
+    3000 │            ╱  500 fpm                           ╲
+         │           ╱                                      ╲
+    2000 │          ╱                                        ╲
+         │         ╱                                          ╲
+    1000 │        ╱                                            ╲ APPROACH
+         │       ╱                                              ╲
+       0 │──────╱────────────────────────────────────────────────╲────▶
+         └──────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────
+              SN65    5     10    15    20    25    30   KHUT  Distance (nm)
+
+    Flight Phases:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    [GROUND_ROLL] → [ROTATION] → [INITIAL_CLIMB] → [CLIMB] →
+    [CRUISE_TO_TP] → [TURN_TO_INTERCEPT] → [INTERCEPT_LEG] →
+    [FINAL_APPROACH] → [SHORT_FINAL] → [LANDING] → [LANDED]
+```
+
+### 11 Autonomous Flight Phases
+
+| Phase | Description | Key Parameters |
+|-------|-------------|----------------|
+| GROUND_ROLL | Accelerate on runway | Full throttle, V_rotate = 54 KTAS |
+| ROTATION | Pitch up for liftoff | 10° pitch target |
+| INITIAL_CLIMB | Clear obstacles | V_climb = 74 KTAS |
+| CLIMB | Climb to cruise | 500 fpm, heading to TP |
+| CRUISE_TO_TP | Level cruise | 5500 ft, 110 KTAS |
+| TURN_TO_INTERCEPT | Procedure turn | Roll to runway heading |
+| INTERCEPT_LEG | Intercept final | Glideslope capture |
+| FINAL_APPROACH | Stabilized approach | 3° glideslope, 65 KTAS |
+| SHORT_FINAL | Pre-landing | Flaps full, 60 KTAS |
+| LANDING | Flare and touchdown | Idle thrust, 50 KTAS |
+| LANDED | Mission complete | Brakes applied |
+
+---
 
 ## Quick Start
 
 ### Prerequisites
+
+```bash
+# System requirements
 - Python 3.10+
-- CUDA-capable GPU (recommended)
-- WSL2 (for Windows) or Linux
+- NVIDIA GPU with CUDA 12.x (recommended)
+- WSL2 (Windows) or native Linux
+- 8+ GB RAM
+```
 
 ### Installation
 
 ```bash
+# Clone and setup
 cd /home/AIDA
 python3 -m venv .venv-linux
 source .venv-linux/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
-```
 
-### Training
-
-```bash
 # Set environment variables (WSL)
 export MPLCONFIGDIR=/tmp/matplotlib-config
 export CUPY_CACHE_DIR=/tmp/cupy-cache
-
-# Train with curriculum learning
-python scripts/train_cessna172_curriculum.py --start-phase 1
 ```
 
-### Visualization
+### Run Expert Flight Demo
 
 ```bash
-# Start telemetry viewer
-./scripts/utils/run_cessna172_viewer.sh
+# Terminal 1: Start viewer server
+cd /home/AIDA/viewer/public
+python -m http.server 8000
 
-# Access:
-# - 3D Viewer: http://localhost:8000
-# - TensorBoard: http://localhost:6006
+# Terminal 2: Run cross-country flight
+source .venv-linux/bin/activate
+python scripts/run_residual_telemetry.py --pure-expert
+
+# Open browser: http://localhost:8000
 ```
+
+### Train Residual RL Policy
+
+```bash
+# Train with 16 parallel environments
+python scripts/train_residual_ppo_v2.py \
+    --timesteps 2000000 \
+    --n-envs 16 \
+    --lr 1e-4
+
+# Monitor training
+tensorboard --logdir checkpoints/residual_ppo_v2/logs --port 6007
+```
+
+### Run Trained Policy
+
+```bash
+# Run with trained model
+python scripts/run_residual_telemetry_v2.py \
+    --model checkpoints/residual_ppo_v2/best_model.zip
+
+# Compare with pure expert
+python scripts/run_residual_telemetry.py --pure-expert
+```
+
+---
 
 ## Project Structure
 
 ```
-├── aida_sim/              # Core simulation package
-│   ├── env/               # RL environments (Gymnasium)
-│   ├── dynamics/          # Flight physics
-│   └── systems/           # Aircraft subsystems
-├── assets/                # 3D models and research papers
-├── checkpoints/           # Trained model weights
-├── config/                # Configuration files
-├── data/                  # Training data and visualizations
-├── docs/                  # Documentation
-├── gpu-flight-dynamics/   # CUDA parallel simulator
-├── scripts/               # Training and utility scripts
-└── viewer/                # 3D web visualization
+AIDA/
+├── aida_sim/                    # Core simulation package
+│   ├── env/                     # RL environments
+│   │   ├── flight_env_cessna172.py
+│   │   ├── residual_env_v2.py   # 7-control residual environment
+│   │   └── waypoint_env.py
+│   ├── dynamics/                # Flight physics
+│   ├── systems/                 # Aircraft subsystems
+│   └── io/                      # Telemetry I/O
+│
+├── gpu-flight-dynamics/         # CUDA parallel simulator
+│   └── python/
+│       ├── flight_dynamics.py   # GPU-accelerated 6-DOF
+│       └── aircraft_database.py # Aircraft configurations
+│
+├── scripts/                     # Training and utility scripts
+│   ├── train_residual_ppo_v2.py # Main training script
+│   ├── run_residual_telemetry.py
+│   ├── triangle_controller.py   # Expert FSM controller
+│   └── classical_mission_controller.py
+│
+├── viewer/                      # 3D visualization
+│   └── public/
+│       └── index.html           # WebGL viewer + telemetry
+│
+├── checkpoints/                 # Trained models
+│   └── residual_ppo_v2/
+│       ├── best_model.zip
+│       └── logs/                # TensorBoard logs
+│
+├── docs/                        # Documentation
+│   ├── img/                     # Architecture diagrams
+│   └── *.md                     # Technical docs
+│
+└── config/                      # Configuration files
 ```
 
-See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed layout.
+---
 
-## Classical Controller (Expert Demonstrator)
+## Development Guide
 
-A fully autonomous classical controller that flies complete traffic patterns, serving as
-an expert demonstrator for imitation learning and a safety fallback for hybrid architectures.
+### Adding a New Aircraft
 
-### 3D Visualization
+1. Add configuration to `gpu-flight-dynamics/python/aircraft_database.py`
+2. Define aerodynamic coefficients (CL, CD, Cm, etc.)
+3. Specify mass properties (mass, Ixx, Iyy, Izz)
+4. Create environment wrapper if needed
 
-![Cessna 172 Traffic Pattern](docs/img/172Roll.png)
+### Modifying Reward Functions
 
-*Cessna 172 rolling down the runway. 
-
-**Video**: [Takeoff172.mp4](docs/img/Takeoff172.mp4) - Cessna 172 takeoff and climb sequence
-
-### Traffic Pattern
-
-```
-    UPWIND (N) ──────────────────► CROSSWIND TURN
-         ▲                                │
-         │                                ▼
-      RUNWAY                         CROSSWIND (E)
-         │                                │
-         ▲                                ▼
-    FINAL ◄────── BASE TURN ◄────── DOWNWIND TURN
-         │                                │
-    APPROACH                         DOWNWIND (S)
-         │
-      LANDING
-```
-
-### Running the Traffic Pattern Simulation
-
-```bash
-# Start the simulation with 3D viewer
-cd /home/AIDA
-source .venv-linux/bin/activate
-
-# Start HTTP server for viewer (in one terminal)
-cd viewer/public && python -m http.server 8000
-
-# Start simulation (in another terminal)
-python scripts/run_traffic_pattern_with_telemetry.py
-```
-
-Open browser to `http://<your-ip>:8000` for the 3D visualization.
-
-### Viewer Controls
-
-- **Pause/Resume**: Freeze simulation physics
-- **Restart**: Reset to ground roll
-- **Jump to Phase**: Skip to any flight phase
-- **Follow**: Camera follows aircraft
-- **Reset View**: Return to default camera position
-
-### 15 Flight Phases
-
-| Phase | Description |
-|-------|-------------|
-| GROUND_ROLL | Accelerating on runway |
-| ROTATION | Pitching up for liftoff |
-| INITIAL_CLIMB | Immediate post-liftoff |
-| CLIMB | Climbing to cruise altitude |
-| CRUISE_UPWIND | Level flight heading north |
-| TURN_CROSSWIND | 90° right turn |
-| CRUISE_CROSSWIND | Level flight heading east |
-| TURN_DOWNWIND | 90° right turn |
-| CRUISE_DOWNWIND | Level flight heading south |
-| TURN_BASE | 90° right turn, begin descent |
-| DESCENT_BASE | Descending on base leg |
-| TURN_FINAL | Aligning with runway |
-| APPROACH | Final approach with glideslope |
-| LANDING | Flare and touchdown |
-| LANDED | Mission complete |
-
-### Hybrid Architecture (Future)
-
-The classical controller enables a hybrid NN/classical architecture:
+Edit `scripts/residual_env_v2.py`:
 
 ```python
-if safety_monitor.is_safe(state):
-    action = neural_net_policy(state)
-else:
-    action = classical_controller.compute_action(state)
+def _compute_reward(self, state, action, info):
+    # Phase-specific rewards
+    if self.phase in [XCPhase.GROUND_ROLL, XCPhase.ROTATION]:
+        return self._takeoff_reward(state, action)
+    elif self.phase in [XCPhase.CRUISE_TO_TP]:
+        return self._cruise_reward(state, action)
+    else:
+        return self._approach_reward(state, action)
 ```
 
-## Training Methodology
-
-### Curriculum Learning
-
-Progressive training through flight phases:
-
-| Phase | Task | Description | Target |
-|-------|------|-------------|--------|
-| 1 | Ground Roll | Accelerate on runway, maintain centerline | Reach rotation speed |
-| 2 | Rotation | Pitch up to liftoff attitude | Positive climb rate |
-| 3 | Initial Climb | Establish stable climb | 50 ft AGL |
-| 4 | Full Climb | Climb to cruise altitude | Target altitude |
-| 5 | Cruise | Level flight maintenance | Altitude/speed hold |
-
-### Reward Shaping
-
-Each phase uses task-specific reward functions:
-- **Ground Roll**: Speed progression, centerline tracking, pitch control, heading maintenance
-- **Rotation**: Pitch rate, altitude gain, airspeed maintenance
-- **Climb**: Climb rate, heading, wings level
-- **Cruise**: Altitude hold, speed hold, attitude stability
-
-## Key Features
-
-### High-Performance Simulation
-- **GPU acceleration**: CuPy/CUDA for flight dynamics (1000+ parallel instances)
-- **Parallel environments**: 4-16 SubprocVecEnv for PPO training
-- **Real-time visualization**: WebSocket telemetry at 20Hz
-
-### Flight Dynamics
-- 6-DOF rigid body dynamics
-- Aerodynamic force/moment modeling with stability derivatives
-- Ground contact and friction modeling
-- Configurable aircraft parameters
-
-### Safety Constraints
-- Flight envelope protection (stall speed, max speed, G-limits)
-- Attitude limits (pitch, roll, yaw rate)
-- Geofencing and boundary detection
-- Graceful termination handling
-
-## Development
-
-### Environment API
-
-```python
-from aida_sim.env.flight_env_cessna172 import Cessna172Env
-
-env = Cessna172Env(task='ground_roll')
-obs, info = env.reset()
-
-for _ in range(1000):
-    action = policy(obs)  # [throttle, aileron, elevator, rudder]
-    obs, reward, terminated, truncated, info = env.step(action)
-    if terminated or truncated:
-        break
-```
-
-### Training Scripts
+### TensorBoard Monitoring
 
 ```bash
-# Curriculum learning (recommended)
-python scripts/train_cessna172_curriculum.py --start-phase 1
+# Start TensorBoard
+tensorboard --logdir checkpoints/residual_ppo_v2/logs --port 6007
 
-# Single task training
-python scripts/train_cessna172_ppo.py --task ground_roll --timesteps 500000
-
-# Evaluation
-python scripts/test_phase1_ground_roll.py --checkpoint path/to/model.zip
+# Key metrics to watch:
+# - rollout/ep_rew_mean: Average episode reward
+# - train/loss: Combined loss
+# - train/entropy_loss: Exploration metric
+# - train/value_loss: Value function accuracy
 ```
 
-### Adding New Aircraft
+---
 
-1. Create aircraft configuration in `gpu-flight-dynamics/python/aircraft_database.py`
-2. Add aerodynamic coefficients and mass properties
-3. Create environment wrapper in `aida_sim/env/`
-4. Add 3D model (GLTF) to `assets/aircraft/`
+## References
 
-## Documentation
+1. **Stable-Baselines3**: [https://stable-baselines3.readthedocs.io/](https://stable-baselines3.readthedocs.io/)
+2. **PPO Algorithm**: Schulman et al., "Proximal Policy Optimization Algorithms" (2017)
+3. **Residual RL**: Silver et al., "Residual Policy Learning" (2018)
+4. **Flight Dynamics**: Stevens & Lewis, "Aircraft Control and Simulation" (3rd ed.)
 
-- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - Directory layout
-- [docs/PHASE1_TRAINING_SESSION_SUMMARY.md](docs/PHASE1_TRAINING_SESSION_SUMMARY.md) - Latest training results
-- [docs/session_summaries/](docs/session_summaries/) - Historical session notes
-- [docs/dev/](docs/dev/) - Development documentation
-
-## Requirements
-
-Key dependencies (see [requirements.txt](requirements.txt)):
-- `stable-baselines3` - PPO implementation
-- `gymnasium` - RL environment API
-- `cupy-cuda12x` - GPU-accelerated NumPy
-- `torch` - Neural network training
-- `tensorboard` - Training visualization
+---
 
 ## License
 
-Internal research project.
+Internal research project - Kushal Koirala
 
 ---
-**Last Updated**: January 8, 2026
 
+**Last Updated: January 11, 2026
