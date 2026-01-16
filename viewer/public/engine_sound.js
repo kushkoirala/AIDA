@@ -89,17 +89,17 @@ let lastLogTime = 0;
 function updateEngineSound(throttle) {
   if (!soundInitialized || !engineSound || !soundEnabled) return;
   // Log every 2 seconds to avoid spam
-  const now = Date.now();
-  if (now - lastLogTime > 2000) {
+  const logNow = Date.now();
+  if (logNow - lastLogTime > 2000) {
     console.log('[Sound] updateEngineSound, throttle:', throttle.toFixed(2));
-    lastLogTime = now;
+    lastLogTime = logNow;
   }
-  
+
   const rpm = ENGINE_IDLE_RPM + throttle * (ENGINE_MAX_RPM - ENGINE_IDLE_RPM);
   const firingFreq = (rpm / 60) * 2;
   const mainFreq = firingFreq * 0.5;
   const exhaustFreq = firingFreq * 1.5;
-  
+
   const now = audioContext.currentTime;
   engineSound.mainOsc.frequency.setTargetAtTime(mainFreq, now, 0.1);
   engineSound.pulseOsc.frequency.setTargetAtTime(firingFreq, now, 0.1);

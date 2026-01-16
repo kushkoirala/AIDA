@@ -391,9 +391,438 @@
       color: var(--accent);
       letter-spacing: 1px;
     }
+
+    /* Flight Setup Panel */
+    #flight-setup-panel {
+      position: absolute;
+      top: 80px;
+      right: 12px;
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 14px 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      min-width: 260px;
+      z-index: 55;
+    }
+    #flight-setup-panel h3 {
+      margin: 0 0 12px 0;
+      font-size: 13px;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border-bottom: 1px solid rgba(125, 211, 252, 0.2);
+      padding-bottom: 8px;
+    }
+    .setup-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 10px;
+    }
+    .setup-row label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      min-width: 70px;
+    }
+    .setup-row select {
+      flex: 1;
+      background: #1f2a3d;
+      color: var(--text);
+      border: 1px solid #28364c;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .setup-row select:hover {
+      border-color: var(--accent);
+    }
+    .setup-row select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.2);
+    }
+    .setup-buttons {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    .setup-buttons button {
+      flex: 1;
+      background: #1f2a3d;
+      color: var(--text);
+      border: 1px solid #28364c;
+      border-radius: 6px;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+    }
+    .setup-buttons button:hover {
+      background: #26344a;
+    }
+    .setup-buttons button.primary {
+      background: #2d4a2d;
+      border-color: var(--ok);
+      color: var(--ok);
+    }
+    .setup-buttons button.primary:hover {
+      background: #3d5a3d;
+    }
+    .setup-buttons button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #route-preview {
+      background: rgba(0,0,0,0.3);
+      border-radius: 6px;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 11px;
+    }
+    #route-preview .preview-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    #route-preview .preview-label {
+      color: var(--muted);
+    }
+    #route-preview .preview-value {
+      color: var(--text);
+      font-weight: 600;
+    }
+    #flight-status {
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+    #flight-status.ready {
+      color: var(--ok);
+      background: rgba(52, 211, 153, 0.1);
+    }
+    #flight-status.flying {
+      color: var(--accent);
+      background: rgba(125, 211, 252, 0.1);
+    }
+
+    /* ===== HANGAR MODE STYLES ===== */
+    #hangar-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 200;
+      transition: opacity 0.5s ease, visibility 0.5s ease;
+    }
+    #hangar-overlay.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    #hangar-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .hangar-ui {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    .hangar-title {
+      position: absolute;
+      top: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.8);
+    }
+    .hangar-subtitle {
+      position: absolute;
+      top: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 14px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    /* Aircraft selection buttons at bottom */
+    .aircraft-selector {
+      position: absolute;
+      bottom: 180px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 20px;
+      pointer-events: auto;
+    }
+    .aircraft-btn {
+      padding: 15px 40px;
+      background: rgba(0, 0, 0, 0.6);
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      color: var(--text);
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+    }
+    .aircraft-btn:hover {
+      border-color: var(--accent);
+      background: rgba(125, 211, 252, 0.1);
+    }
+    .aircraft-btn.selected {
+      border-color: var(--ok);
+      background: rgba(52, 211, 153, 0.2);
+      color: var(--ok);
+      box-shadow: 0 0 30px rgba(52, 211, 153, 0.3);
+    }
+    .aircraft-btn .btn-label {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+    .aircraft-btn .btn-specs {
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    /* Flight plan panel on right side */
+    .hangar-flight-panel {
+      position: absolute;
+      top: 50%;
+      right: 30px;
+      transform: translateY(-50%);
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(15px);
+      border-radius: 16px;
+      padding: 25px 30px;
+      min-width: 320px;
+      border: 1px solid rgba(255,255,255,0.1);
+      pointer-events: auto;
+    }
+    .hangar-flight-panel h3 {
+      font-size: 14px;
+      color: var(--accent);
+      margin: 0 0 20px 0;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      border-bottom: 1px solid rgba(125, 211, 252, 0.2);
+      padding-bottom: 10px;
+    }
+    .hangar-form-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .hangar-form-row label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      min-width: 90px;
+    }
+    .hangar-form-row select {
+      flex: 1;
+      background: rgba(31, 42, 61, 0.8);
+      color: var(--text);
+      border: 1px solid #28364c;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .hangar-form-row select:hover {
+      border-color: var(--accent);
+    }
+    .hangar-form-row select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(125, 211, 252, 0.2);
+    }
+    .hangar-route-info {
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 8px;
+      padding: 12px;
+      margin: 15px 0;
+      display: none;
+    }
+    .hangar-route-info.visible {
+      display: block;
+    }
+    .route-stat {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .route-stat .stat-label {
+      color: var(--muted);
+    }
+    .route-stat .stat-value {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .hangar-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .hangar-buttons button {
+      flex: 1;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .hangar-btn-secondary {
+      background: rgba(31, 42, 61, 0.8);
+      color: var(--text);
+      border: 1px solid #28364c;
+    }
+    .hangar-btn-secondary:hover {
+      background: rgba(38, 52, 74, 0.9);
+    }
+    .hangar-btn-primary {
+      background: linear-gradient(135deg, rgba(45, 74, 45, 0.9) 0%, rgba(61, 90, 61, 0.9) 100%);
+      color: var(--ok);
+      border: 1px solid var(--ok);
+    }
+    .hangar-btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, rgba(61, 90, 61, 0.9) 0%, rgba(77, 106, 77, 0.9) 100%);
+      box-shadow: 0 0 20px rgba(52, 211, 153, 0.4);
+    }
+    .hangar-btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .hangar-status {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 12px;
+    }
+    .hangar-status.ready {
+      color: var(--ok);
+    }
+    .hangar-status.error {
+      color: var(--danger);
+    }
+
+    /* Instructions at bottom */
+    .hangar-instructions {
+      position: absolute;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+    }
   </style>
 </head>
 <body>
+  <!-- ===== HANGAR OVERLAY ===== -->
+  <div id="hangar-overlay">
+    <!-- 3D Hangar Canvas -->
+    <canvas id="hangar-canvas"></canvas>
+
+    <!-- UI Overlay -->
+    <div class="hangar-ui">
+      <div class="hangar-title">AIDA Flight Simulator</div>
+      <div class="hangar-subtitle">Select Your Aircraft</div>
+
+      <!-- Aircraft selection buttons at bottom -->
+      <div class="aircraft-selector">
+        <button class="aircraft-btn selected" data-aircraft="cessna172">
+          <span class="btn-label">Cessna 172 Skyhawk</span>
+          <span class="btn-specs">120 kts • 640 nm • 14,000 ft</span>
+        </button>
+        <button class="aircraft-btn" data-aircraft="udaan">
+          <span class="btn-label">Udaan Prototype</span>
+          <span class="btn-specs">150 kts • 800 nm • 18,000 ft</span>
+        </button>
+      </div>
+
+      <!-- Flight plan panel on right -->
+      <div class="hangar-flight-panel">
+        <h3>Flight Plan</h3>
+        <div class="hangar-form-row">
+          <label>Departure</label>
+          <select id="hangar-departure">
+            <option value="">Select airport...</option>
+          </select>
+        </div>
+        <div class="hangar-form-row">
+          <label>Destination</label>
+          <select id="hangar-destination">
+            <option value="">Select airport...</option>
+          </select>
+        </div>
+
+        <div class="hangar-route-info" id="hangar-route-info">
+          <div class="route-stat">
+            <span class="stat-label">Distance</span>
+            <span class="stat-value" id="hangar-distance">--</span>
+          </div>
+          <div class="route-stat">
+            <span class="stat-label">Course</span>
+            <span class="stat-value" id="hangar-course">--</span>
+          </div>
+          <div class="route-stat">
+            <span class="stat-label">Est. Flight Time</span>
+            <span class="stat-value" id="hangar-time">--</span>
+          </div>
+          <div class="route-stat">
+            <span class="stat-label">Departure Runway</span>
+            <span class="stat-value" id="hangar-dep-rwy">--</span>
+          </div>
+        </div>
+
+        <div class="hangar-buttons">
+          <button class="hangar-btn-secondary" id="hangar-create-btn" disabled>Create Flight</button>
+          <button class="hangar-btn-primary" id="hangar-fly-btn" disabled>Fly</button>
+        </div>
+
+        <div class="hangar-status" id="hangar-status">Select aircraft and airports to begin</div>
+      </div>
+
+      <!-- Instructions at bottom -->
+      <div class="hangar-instructions">
+        Use mouse to orbit • Click aircraft to select
+      </div>
+    </div>
+  </div>
+
   <button id="toggle-telemetry" class="panel-visible">Hide</button>
 
   <div id="compass-container">
@@ -456,7 +885,51 @@
       <div class="sim-value" id="sim-speed">1x</div>
     </div>
   </div>
-<div id="nav-info">    <div class="nav-section departure"><div class="nav-label">FROM</div><div class="nav-value">SN65</div><div class="nav-sub">RWY 35</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">DIST</div><div class="nav-value" id="nav-distance">--</div><div class="nav-sub" id="nav-eta">ETA --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">CRS</div><div class="nav-value">338</div><div class="nav-sub">TRUE</div></div>    <div class="nav-divider"></div>    <div class="nav-section arrival"><div class="nav-label">TO</div><div class="nav-value">KHUT</div><div class="nav-sub">RWY 31</div></div>  </div>
+
+  <!-- Flight Setup Panel (hidden in hangar mode) -->
+  <div id="flight-setup-panel" style="display: none;">
+    <h3>Flight Setup</h3>
+    <div class="setup-row">
+      <label>Aircraft</label>
+      <select id="aircraft-select">
+        <option value="cessna172">Cessna 172</option>
+        <option value="udaan">Udaan Prototype</option>
+      </select>
+    </div>
+    <div class="setup-row">
+      <label>Departure</label>
+      <select id="departure-select">
+        <option value="">Select airport...</option>
+      </select>
+    </div>
+    <div class="setup-row">
+      <label>Destination</label>
+      <select id="destination-select">
+        <option value="">Select airport...</option>
+      </select>
+    </div>
+    <div id="route-preview" style="display: none;">
+      <div class="preview-row">
+        <span class="preview-label">Distance</span>
+        <span class="preview-value" id="preview-distance">--</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Course</span>
+        <span class="preview-value" id="preview-course">--</span>
+      </div>
+      <div class="preview-row">
+        <span class="preview-label">Est. Time</span>
+        <span class="preview-value" id="preview-time">--</span>
+      </div>
+    </div>
+    <div class="setup-buttons">
+      <button id="create-flight-btn" disabled>Create Flight</button>
+      <button id="fly-btn" class="primary" disabled>Fly</button>
+    </div>
+    <div id="flight-status">Select departure and destination</div>
+  </div>
+
+<div id="nav-info">    <div class="nav-section departure"><div class="nav-label">FROM</div><div class="nav-value" id="nav-origin">----</div><div class="nav-sub" id="nav-origin-rwy">RWY --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">DIST</div><div class="nav-value" id="nav-distance">--</div><div class="nav-sub" id="nav-eta">ETA --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">CRS</div><div class="nav-value" id="nav-course">---</div><div class="nav-sub">TRUE</div></div>    <div class="nav-divider"></div>    <div class="nav-section arrival"><div class="nav-label">TO</div><div class="nav-value" id="nav-dest">----</div><div class="nav-sub" id="nav-dest-rwy">RWY --</div></div>  </div>
 
   <div id="hud">
     <div class="line">
@@ -837,14 +1310,107 @@
         new THREE.Vector3(KHUT_POS_X, GROUND_Y + 10, KHUT_POS_Z)
       ];
       const courseGeom = new THREE.BufferGeometry().setFromPoints(coursePoints);
-      const courseMat = new THREE.LineDashedMaterial({ 
-        color: 0x7dd3fc, dashSize: 500, gapSize: 300, transparent: true, opacity: 0.4 
+      const courseMat = new THREE.LineDashedMaterial({
+        color: 0x7dd3fc, dashSize: 500, gapSize: 300, transparent: true, opacity: 0.4
       });
       const courseLine = new THREE.Line(courseGeom, courseMat);
       courseLine.computeLineDistances();
       scene.add(courseLine);
 
-      
+      // ===== KAAO AIRPORT (Colonel James Jabara) =====
+      // KAAO position relative to SN65: x=55880ft (north), y=115140ft (east)
+      // In scene coords: X=East, Z=-North
+      const KAAO_POS_X = 115140;   // East in feet (positive X in scene)
+      const KAAO_POS_Z = -55880;   // North in feet (negative Z in scene)
+
+      // KAAO Runway 18/36 - heading 180/360 degrees
+      const kaaoRwyLen = 4000;  // feet
+      const kaaoRwyWid = 75;    // feet
+
+      // Create runway using a group for proper rotation
+      const kaaoRwyGroup = new THREE.Group();
+      kaaoRwyGroup.position.set(KAAO_POS_X, GROUND_Y, KAAO_POS_Z);
+
+      // Runway tarmac
+      const kaaoRwyGeom = new THREE.PlaneGeometry(kaaoRwyWid, kaaoRwyLen);
+      const kaaoRwyMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
+      const kaaoRunway = new THREE.Mesh(kaaoRwyGeom, kaaoRwyMat);
+      kaaoRunway.position.set(0, 0.01, 0);
+      kaaoRunway.rotation.x = -Math.PI / 2;
+      kaaoRwyGroup.add(kaaoRunway);
+
+      // Runway centerline stripes
+      const kaaoStripeLen = 120;
+      const kaaoStripeGap = 80;
+      const kaaoStripeWid = 3;
+      const kaaoTotalPattern = kaaoStripeLen + kaaoStripeGap;
+      const kaaoNumStripes = Math.floor((kaaoRwyLen - 200) / kaaoTotalPattern);
+      for (let i = 0; i < kaaoNumStripes; i++) {
+        const stripeGeom = new THREE.PlaneGeometry(kaaoStripeWid, kaaoStripeLen);
+        const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const stripe = new THREE.Mesh(stripeGeom, stripeMat);
+        const zPos = -kaaoRwyLen/2 + 150 + i * kaaoTotalPattern + kaaoStripeLen/2;
+        stripe.position.set(0, 0.02, zPos);
+        stripe.rotation.x = -Math.PI / 2;
+        kaaoRwyGroup.add(stripe);
+      }
+
+      // Threshold markings (RWY 18 end)
+      for (let j = -3; j <= 3; j++) {
+        if (j === 0) continue;
+        const threshGeom = new THREE.PlaneGeometry(3, 100);
+        const threshMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const thresh = new THREE.Mesh(threshGeom, threshMat);
+        thresh.position.set(j * 8, 0.02, kaaoRwyLen/2 - 60);
+        thresh.rotation.x = -Math.PI / 2;
+        kaaoRwyGroup.add(thresh);
+      }
+
+      // RWY 18 number
+      const rwy18Label = createRunwayLabel('18', 90);
+      rwy18Label.position.set(0, 0.02, kaaoRwyLen/2 - 180);
+      rwy18Label.rotation.x = -Math.PI / 2;
+      rwy18Label.rotation.z = Math.PI;
+      kaaoRwyGroup.add(rwy18Label);
+
+      // RWY 36 number
+      const rwy36Label = createRunwayLabel('36', 90);
+      rwy36Label.position.set(0, 0.02, -kaaoRwyLen/2 + 180);
+      rwy36Label.rotation.x = -Math.PI / 2;
+      rwy36Label.rotation.z = 0;
+      kaaoRwyGroup.add(rwy36Label);
+
+      // RWY 18 heading 180 = south, no rotation needed
+      kaaoRwyGroup.rotation.y = 0;
+      scene.add(kaaoRwyGroup);
+
+      // KAAO identifier
+      const kaaoIdLabel = createRunwayLabel('KAAO', 100);
+      kaaoIdLabel.position.set(KAAO_POS_X + 200, GROUND_Y + 1, KAAO_POS_Z);
+      kaaoIdLabel.rotation.x = -Math.PI / 2;
+      scene.add(kaaoIdLabel);
+
+      // KAAO Beacon column (green/amber)
+      const kaaoBeaconGeom = new THREE.CylinderGeometry(30, 30, 5000, 8);
+      const kaaoBeaconMat = new THREE.MeshBasicMaterial({ color: 0x34d399, transparent: true, opacity: 0.15 });
+      const kaaoBeacon = new THREE.Mesh(kaaoBeaconGeom, kaaoBeaconMat);
+      kaaoBeacon.position.set(KAAO_POS_X, GROUND_Y + 2500, KAAO_POS_Z);
+      scene.add(kaaoBeacon);
+
+      // Additional course line from KHUT to KAAO
+      const coursePointsKHUT_KAAO = [
+        new THREE.Vector3(KHUT_POS_X, GROUND_Y + 10, KHUT_POS_Z),
+        new THREE.Vector3(KAAO_POS_X, GROUND_Y + 10, KAAO_POS_Z)
+      ];
+      const courseGeomKHUT_KAAO = new THREE.BufferGeometry().setFromPoints(coursePointsKHUT_KAAO);
+      const courseMatKHUT_KAAO = new THREE.LineDashedMaterial({
+        color: 0x34d399, dashSize: 500, gapSize: 300, transparent: true, opacity: 0.4
+      });
+      const courseLineKHUT_KAAO = new THREE.Line(courseGeomKHUT_KAAO, courseMatKHUT_KAAO);
+      courseLineKHUT_KAAO.computeLineDistances();
+      scene.add(courseLineKHUT_KAAO);
+
+
       // Runway 17 (north end, facing south) - reciprocal of 35
       const rwy17Label = createRunwayLabel('17', 90);
       rwy17Label.position.set(0, GROUND_Y + 0.02, -runwayLength/2 + 80);  // North end
@@ -876,6 +1442,68 @@
 
       setupViewer();
     })();
+
+    // Trajectory visualization
+    let trajectoryLine = null;
+    let trajectoryPoints = [];
+
+    function createTrajectoryLine(trajectoryData) {
+      // Remove existing trajectory line if any
+      if (trajectoryLine) {
+        scene.remove(trajectoryLine);
+        trajectoryLine.geometry.dispose();
+        trajectoryLine.material.dispose();
+        trajectoryLine = null;
+      }
+
+      if (!trajectoryData || trajectoryData.length < 2) return;
+
+      // Convert trajectory points from NED (feet) to Three.js coordinates
+      // NED: X=North, Y=East, Z=altitude (positive up, already converted from sim)
+      // Three.js: X=East, Y=Up, Z=-North
+      const points = [];
+      for (const pt of trajectoryData) {
+        // pt = [x_north, y_east, z_alt] in feet
+        const x = pt[1];      // East -> X
+        const y = pt[2];      // Altitude -> Y
+        const z = -pt[0];     // North -> -Z
+        points.push(new THREE.Vector3(x, y, z));
+      }
+
+      // Create the trajectory line with gradient color (green->yellow->red for altitude phases)
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+
+      // Color based on segment: takeoff=cyan, climb=green, cruise=blue, approach=yellow, landing=red
+      const colors = [];
+      for (let i = 0; i < points.length; i++) {
+        const t = i / (points.length - 1);
+        let r, g, b;
+        if (t < 0.1) { // Takeoff - cyan
+          r = 0; g = 1; b = 1;
+        } else if (t < 0.2) { // Climb - green
+          r = 0; g = 1; b = 0;
+        } else if (t < 0.6) { // Cruise - blue
+          r = 0.3; g = 0.6; b = 1;
+        } else if (t < 0.85) { // Approach - yellow
+          r = 1; g = 0.9; b = 0;
+        } else { // Landing - red
+          r = 1; g = 0.3; b = 0.3;
+        }
+        colors.push(r, g, b);
+      }
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+      const material = new THREE.LineBasicMaterial({
+        vertexColors: true,
+        linewidth: 2,
+        transparent: true,
+        opacity: 0.8
+      });
+
+      trajectoryLine = new THREE.Line(geometry, material);
+      scene.add(trajectoryLine);
+      console.log('[Viewer] Trajectory line created with', points.length, 'points');
+    }
 
     function setupViewer() {
       // Allow WebSocket port to be specified via URL query parameter
@@ -1108,7 +1736,7 @@ function updateHud(data, viewerPos) {
           aoaValue.textContent = data.aoa_deg.toFixed(1);
         }
 
-        // Update navigation info (distance to KHUT)
+        // Update navigation info (distance to destination)
         const navDistEl = document.getElementById('nav-distance');
         const navEtaEl = document.getElementById('nav-eta');
         if (navDistEl && typeof data.distance_nm === 'number') {
@@ -1119,6 +1747,38 @@ function updateHud(data, viewerPos) {
             navEtaEl.textContent = 'ETA ' + Math.round(etaMin) + ' min';
           } else if (navEtaEl) {
             navEtaEl.textContent = 'ETA --';
+          }
+        }
+
+        // Update origin/destination from telemetry
+        if (data.origin) {
+          const navOriginEl = document.getElementById('nav-origin');
+          if (navOriginEl) navOriginEl.textContent = data.origin;
+        }
+        if (data.destination) {
+          const navDestEl = document.getElementById('nav-dest');
+          if (navDestEl) navDestEl.textContent = data.destination;
+        }
+        if (data.origin_config) {
+          const navOriginRwyEl = document.getElementById('nav-origin-rwy');
+          if (navOriginRwyEl) {
+            const rwyNum = Math.round(data.origin_config.runway_heading_deg / 10);
+            navOriginRwyEl.textContent = 'RWY ' + String(rwyNum).padStart(2, '0');
+          }
+          // Update course
+          const navCourseEl = document.getElementById('nav-course');
+          if (navCourseEl && data.dest_config) {
+            const dx = data.dest_config.x_ft - data.origin_config.x_ft;
+            const dy = data.dest_config.y_ft - data.origin_config.y_ft;
+            const course = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+            navCourseEl.textContent = Math.round(course);
+          }
+        }
+        if (data.dest_config) {
+          const navDestRwyEl = document.getElementById('nav-dest-rwy');
+          if (navDestRwyEl) {
+            const rwyNum = Math.round(data.dest_config.runway_heading_deg / 10);
+            navDestRwyEl.textContent = 'RWY ' + String(rwyNum).padStart(2, '0');
           }
         }
 
@@ -1168,6 +1828,11 @@ function updateHud(data, viewerPos) {
           try {
             const data = JSON.parse(event.data);
             window.lastTelemetry = data;
+
+            // Handle trajectory data if present
+            if (data.trajectory && Array.isArray(data.trajectory)) {
+              createTrajectoryLine(data.trajectory);
+            }
 
             const pos = data.position || [0, 0, 0];
             const x = pos[0], y = pos[1], z = pos[2];
@@ -1420,6 +2085,842 @@ function updateHud(data, viewerPos) {
         renderer.render(scene, camera);
       }
       animate();
+
+      // ===== Flight Setup Panel Logic =====
+      const KANSAS_AIRPORTS = {
+        "SN65": { name: "Westport Airpark", lat: 37.594, lon: -97.616, elevation_ft: 1448, runway_heading_deg: 4, runway_length_ft: 2625 },
+        "KHUT": { name: "Hutchinson Municipal", lat: 38.066, lon: -97.860, elevation_ft: 1542, runway_heading_deg: 314, runway_length_ft: 7000 },
+        "KICT": { name: "Wichita Eisenhower", lat: 37.650, lon: -97.433, elevation_ft: 1333, runway_heading_deg: 14, runway_length_ft: 10301 },
+        "KAAO": { name: "Colonel James Jabara", lat: 37.747, lon: -97.221, elevation_ft: 1421, runway_heading_deg: 180, runway_length_ft: 6101 },
+        "KEWK": { name: "Newton City-County", lat: 38.058, lon: -97.276, elevation_ft: 1533, runway_heading_deg: 174, runway_length_ft: 5500 },
+        "K50K": { name: "Pawnee Municipal", lat: 38.184, lon: -99.127, elevation_ft: 2200, runway_heading_deg: 170, runway_length_ft: 3800 }
+      };
+
+      // Flight plan state
+      const flightPlan = {
+        aircraft: 'cessna172',
+        departure: null,
+        destination: null,
+        created: false,
+        controllerParams: null
+      };
+
+      // ===== HANGAR MODE =====
+      let hangarMode = true;
+      let hangarScene = null;
+      let hangarCamera = null;
+      let hangarRenderer = null;
+      let hangarControls = null;
+      let hangarAircraftModels = {};
+      let selectedHangarAircraft = 'cessna172';
+      let hangarRaycaster = null;
+      let hangarMouse = null;
+
+      function initHangar3DScene() {
+        const canvas = document.getElementById('hangar-canvas');
+        if (!canvas) return;
+
+        // Create scene
+        hangarScene = new THREE.Scene();
+        hangarScene.background = new THREE.Color(0x1a1a2e);
+        hangarScene.fog = new THREE.Fog(0x1a1a2e, 50, 200);
+
+        // Create camera
+        hangarCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500);
+        hangarCamera.position.set(30, 15, 40);
+        hangarCamera.lookAt(0, 3, 0);
+
+        // Create renderer
+        hangarRenderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        hangarRenderer.setSize(window.innerWidth, window.innerHeight);
+        hangarRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        hangarRenderer.shadowMap.enabled = true;
+        hangarRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        // Add orbit controls for camera
+        hangarControls = new OrbitControls(hangarCamera, canvas);
+        hangarControls.enableDamping = true;
+        hangarControls.dampingFactor = 0.05;
+        hangarControls.minDistance = 15;
+        hangarControls.maxDistance = 80;
+        hangarControls.maxPolarAngle = Math.PI / 2 - 0.05;
+        hangarControls.target.set(0, 3, 0);
+
+        // Setup raycaster for aircraft selection
+        hangarRaycaster = new THREE.Raycaster();
+        hangarMouse = new THREE.Vector2();
+
+        // ===== BUILD HANGAR STRUCTURE =====
+
+        // Floor - polished concrete
+        const floorGeometry = new THREE.PlaneGeometry(120, 80);
+        const floorMaterial = new THREE.MeshStandardMaterial({
+          color: 0x4a4a5a,
+          roughness: 0.6,
+          metalness: 0.2
+        });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        hangarScene.add(floor);
+
+        // Floor markings - center line
+        const lineGeometry = new THREE.PlaneGeometry(100, 0.3);
+        const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        const centerLine = new THREE.Mesh(lineGeometry, lineMaterial);
+        centerLine.rotation.x = -Math.PI / 2;
+        centerLine.position.y = 0.01;
+        hangarScene.add(centerLine);
+
+        // Floor markings - aircraft parking spots
+        const spotGeometry = new THREE.RingGeometry(8, 8.3, 32);
+        const spotMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00, side: THREE.DoubleSide });
+        [-15, 15].forEach((x, i) => {
+          const spot = new THREE.Mesh(spotGeometry, spotMaterial);
+          spot.rotation.x = -Math.PI / 2;
+          spot.position.set(x, 0.01, 0);
+          hangarScene.add(spot);
+        });
+
+        // Walls - back wall
+        const backWallGeometry = new THREE.PlaneGeometry(120, 30);
+        const wallMaterial = new THREE.MeshStandardMaterial({
+          color: 0x2d3748,
+          roughness: 0.9,
+          metalness: 0.1,
+          side: THREE.DoubleSide
+        });
+        const backWall = new THREE.Mesh(backWallGeometry, wallMaterial);
+        backWall.position.set(0, 15, -40);
+        hangarScene.add(backWall);
+
+        // Side walls
+        const sideWallGeometry = new THREE.PlaneGeometry(80, 30);
+        const leftWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
+        leftWall.position.set(-60, 15, 0);
+        leftWall.rotation.y = Math.PI / 2;
+        hangarScene.add(leftWall);
+
+        const rightWall = new THREE.Mesh(sideWallGeometry, wallMaterial);
+        rightWall.position.set(60, 15, 0);
+        rightWall.rotation.y = -Math.PI / 2;
+        hangarScene.add(rightWall);
+
+        // Ceiling with metal beams
+        const ceilingGeometry = new THREE.PlaneGeometry(120, 80);
+        const ceilingMaterial = new THREE.MeshStandardMaterial({
+          color: 0x3d4452,
+          roughness: 0.8,
+          metalness: 0.3,
+          side: THREE.DoubleSide
+        });
+        const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+        ceiling.rotation.x = Math.PI / 2;
+        ceiling.position.y = 30;
+        hangarScene.add(ceiling);
+
+        // Metal support beams
+        const beamMaterial = new THREE.MeshStandardMaterial({
+          color: 0x5a6677,
+          roughness: 0.4,
+          metalness: 0.8
+        });
+        for (let x = -50; x <= 50; x += 25) {
+          const beamGeometry = new THREE.BoxGeometry(1.5, 2, 80);
+          const beam = new THREE.Mesh(beamGeometry, beamMaterial);
+          beam.position.set(x, 29, 0);
+          hangarScene.add(beam);
+        }
+
+        // Cross beams
+        for (let z = -30; z <= 30; z += 20) {
+          const crossBeamGeometry = new THREE.BoxGeometry(120, 1.5, 1);
+          const crossBeam = new THREE.Mesh(crossBeamGeometry, beamMaterial);
+          crossBeam.position.set(0, 28, z);
+          hangarScene.add(crossBeam);
+        }
+
+        // Hangar door (open - showing outside)
+        const doorFrameGeometry = new THREE.BoxGeometry(2, 25, 80);
+        const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x4a5568, metalness: 0.7, roughness: 0.3 });
+        const doorFrameLeft = new THREE.Mesh(doorFrameGeometry, doorFrameMaterial);
+        doorFrameLeft.position.set(-60, 12.5, 40);
+        doorFrameLeft.rotation.y = Math.PI / 2;
+        hangarScene.add(doorFrameLeft);
+
+        // ===== LIGHTING =====
+
+        // Ambient light
+        const ambientLight = new THREE.AmbientLight(0x404050, 0.4);
+        hangarScene.add(ambientLight);
+
+        // Main overhead lights (industrial style)
+        const lightPositions = [
+          [-25, 25, -15], [25, 25, -15],
+          [-25, 25, 15], [25, 25, 15],
+          [0, 25, 0]
+        ];
+
+        lightPositions.forEach(pos => {
+          // Light fixture geometry
+          const fixtureGeometry = new THREE.CylinderGeometry(2, 2.5, 1, 16);
+          const fixtureMaterial = new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.9, roughness: 0.2 });
+          const fixture = new THREE.Mesh(fixtureGeometry, fixtureMaterial);
+          fixture.position.set(pos[0], pos[1], pos[2]);
+          hangarScene.add(fixture);
+
+          // Spotlight
+          const spotlight = new THREE.SpotLight(0xfff5e6, 2, 50, Math.PI / 4, 0.3, 1);
+          spotlight.position.set(pos[0], pos[1] - 0.5, pos[2]);
+          spotlight.target.position.set(pos[0], 0, pos[2]);
+          spotlight.castShadow = true;
+          spotlight.shadow.mapSize.width = 1024;
+          spotlight.shadow.mapSize.height = 1024;
+          hangarScene.add(spotlight);
+          hangarScene.add(spotlight.target);
+        });
+
+        // Light from outside (through open door)
+        const outsideLight = new THREE.DirectionalLight(0x87ceeb, 0.8);
+        outsideLight.position.set(0, 20, 60);
+        outsideLight.target.position.set(0, 0, 0);
+        outsideLight.castShadow = true;
+        hangarScene.add(outsideLight);
+        hangarScene.add(outsideLight.target);
+
+        // ===== LOAD AIRCRAFT MODELS =====
+
+        const hangarLoader = new GLTFLoader();
+
+        // Cessna 172 - left position (large scale for hangar display)
+        hangarLoader.load('Cessna172.gltf', (gltf) => {
+          const cessna = gltf.scene;
+          const CESSNA_SCALE = 12;  // Large scale for hangar display
+          cessna.scale.set(CESSNA_SCALE, CESSNA_SCALE, CESSNA_SCALE);
+
+          // Apply correct orientation (same as flight viewer)
+          cessna.rotation.order = 'YXZ';
+          cessna.rotation.x = Math.PI / 2;   // Pitch model up from Y to face forward
+          cessna.rotation.y = Math.PI + Math.PI / 6;  // Face forward + slight angle for display
+          cessna.rotation.z = 0;
+
+          // Center the model and position in hangar
+          cessna.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(cessna);
+
+          // Position on left side of hangar, on the ground
+          cessna.position.set(-18, -box.min.y + 0.1, 0);
+
+          cessna.traverse((obj) => {
+            if (obj.isMesh) {
+              obj.material = new THREE.MeshStandardMaterial({
+                color: 0xcc0000,
+                roughness: 0.4,
+                metalness: 0.3
+              });
+              obj.castShadow = true;
+              obj.receiveShadow = true;
+            }
+          });
+
+          cessna.userData.aircraftType = 'cessna172';
+          hangarScene.add(cessna);
+          hangarAircraftModels['cessna172'] = cessna;
+
+          // Add selection highlight ring (larger to match aircraft)
+          addSelectionRing(cessna, -18, 0, true);
+
+          console.log('[Hangar] Loaded Cessna 172 at scale', CESSNA_SCALE);
+        });
+
+        // Udaan - right position (even larger scale since it's a smaller aircraft)
+        hangarLoader.load('Udaan-Product4.gltf', (gltf) => {
+          const udaan = gltf.scene;
+          const UDAAN_SCALE = 16;  // Larger scale for the smaller Udaan aircraft
+          udaan.scale.set(UDAAN_SCALE, UDAAN_SCALE, UDAAN_SCALE);
+
+          // Apply correct orientation (same as flight viewer)
+          udaan.rotation.order = 'YXZ';
+          udaan.rotation.x = Math.PI / 2;   // Pitch model up from Y to face forward
+          udaan.rotation.y = Math.PI - Math.PI / 6;  // Face forward + slight angle for display
+          udaan.rotation.z = 0;
+
+          // Center the model and position in hangar
+          udaan.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(udaan);
+
+          // Position on right side of hangar, on the ground
+          udaan.position.set(18, -box.min.y + 0.1, 0);
+
+          udaan.traverse((obj) => {
+            if (obj.isMesh) {
+              obj.material = new THREE.MeshStandardMaterial({
+                color: 0x3b82f6,
+                roughness: 0.4,
+                metalness: 0.3
+              });
+              obj.castShadow = true;
+              obj.receiveShadow = true;
+            }
+          });
+
+          udaan.userData.aircraftType = 'udaan';
+          hangarScene.add(udaan);
+          hangarAircraftModels['udaan'] = udaan;
+
+          // Add selection highlight ring (larger to match aircraft)
+          addSelectionRing(udaan, 18, 0, false);
+
+          console.log('[Hangar] Loaded Udaan at scale', UDAAN_SCALE);
+        });
+
+        // Selection rings (larger to match aircraft scale)
+        function addSelectionRing(aircraft, x, z, isSelected) {
+          const ringGeometry = new THREE.RingGeometry(12, 12.5, 64);
+          const ringMaterial = new THREE.MeshBasicMaterial({
+            color: isSelected ? 0x34d399 : 0x555555,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: isSelected ? 0.8 : 0.3
+          });
+          const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+          ring.rotation.x = -Math.PI / 2;
+          ring.position.set(x, 0.02, z);
+          ring.userData.selectionRing = true;
+          ring.userData.forAircraft = aircraft.userData.aircraftType;
+          hangarScene.add(ring);
+        }
+
+        // Add nameplates
+        function addNameplate(text, x, z) {
+          const canvas = document.createElement('canvas');
+          canvas.width = 512;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#1a1a2e';
+          ctx.fillRect(0, 0, 512, 128);
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 48px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(text, 256, 80);
+
+          const texture = new THREE.CanvasTexture(canvas);
+          const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+          const sprite = new THREE.Sprite(spriteMaterial);
+          sprite.position.set(x, 8, z + 12);
+          sprite.scale.set(15, 4, 1);
+          hangarScene.add(sprite);
+        }
+
+        setTimeout(() => {
+          addNameplate('CESSNA 172 SKYHAWK', -18, 0);
+          addNameplate('UDAAN PROTOTYPE', 18, 0);
+        }, 100);
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+          if (!hangarMode) return;
+          hangarCamera.aspect = window.innerWidth / window.innerHeight;
+          hangarCamera.updateProjectionMatrix();
+          hangarRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Handle mouse click for aircraft selection
+        canvas.addEventListener('click', (event) => {
+          if (!hangarMode) return;
+
+          hangarMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+          hangarMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+          hangarRaycaster.setFromCamera(hangarMouse, hangarCamera);
+          const intersects = hangarRaycaster.intersectObjects(Object.values(hangarAircraftModels), true);
+
+          if (intersects.length > 0) {
+            let clickedAircraft = intersects[0].object;
+            while (clickedAircraft.parent && !clickedAircraft.userData.aircraftType) {
+              clickedAircraft = clickedAircraft.parent;
+            }
+            if (clickedAircraft.userData.aircraftType) {
+              selectHangarAircraft(clickedAircraft.userData.aircraftType);
+            }
+          }
+        });
+
+        // Animation loop
+        function animateHangar() {
+          if (!hangarMode) return;
+          requestAnimationFrame(animateHangar);
+
+          hangarControls.update();
+
+          // Subtle aircraft hover animation
+          Object.values(hangarAircraftModels).forEach(aircraft => {
+            aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.1;
+          });
+
+          hangarRenderer.render(hangarScene, hangarCamera);
+        }
+        animateHangar();
+      }
+
+      function selectHangarAircraft(aircraftType) {
+        selectedHangarAircraft = aircraftType;
+        flightPlan.aircraft = aircraftType;
+
+        // Update UI buttons
+        document.querySelectorAll('.aircraft-btn').forEach(btn => {
+          btn.classList.toggle('selected', btn.dataset.aircraft === aircraftType);
+        });
+
+        // Update 3D selection rings
+        hangarScene.traverse((obj) => {
+          if (obj.userData.selectionRing) {
+            const isSelected = obj.userData.forAircraft === aircraftType;
+            obj.material.color.setHex(isSelected ? 0x34d399 : 0x555555);
+            obj.material.opacity = isSelected ? 0.8 : 0.3;
+          }
+        });
+
+        // Animate camera to selected aircraft
+        const targetX = aircraftType === 'cessna172' ? -18 : 18;
+        const startPos = { x: hangarCamera.position.x, z: hangarCamera.position.z };
+        const endPos = { x: targetX + 30, z: 35 };
+
+        // Simple camera animation
+        let progress = 0;
+        function animateCamera() {
+          progress += 0.03;
+          if (progress >= 1) return;
+
+          hangarCamera.position.x = startPos.x + (endPos.x - startPos.x) * easeOutCubic(progress);
+          hangarCamera.position.z = startPos.z + (endPos.z - startPos.z) * easeOutCubic(progress);
+          hangarControls.target.x = targetX * easeOutCubic(progress);
+
+          requestAnimationFrame(animateCamera);
+        }
+        animateCamera();
+
+        console.log('[Hangar] Selected aircraft:', aircraftType);
+      }
+
+      function easeOutCubic(t) {
+        return 1 - Math.pow(1 - t, 3);
+      }
+
+      function initHangarMode() {
+        const hangarOverlay = document.getElementById('hangar-overlay');
+        const aircraftBtns = document.querySelectorAll('.aircraft-btn');
+        const hangarDeparture = document.getElementById('hangar-departure');
+        const hangarDestination = document.getElementById('hangar-destination');
+        const hangarCreateBtn = document.getElementById('hangar-create-btn');
+        const hangarFlyBtn = document.getElementById('hangar-fly-btn');
+        const hangarStatus = document.getElementById('hangar-status');
+        const hangarRouteInfo = document.getElementById('hangar-route-info');
+        const hangarDistance = document.getElementById('hangar-distance');
+        const hangarCourse = document.getElementById('hangar-course');
+        const hangarTime = document.getElementById('hangar-time');
+        const hangarDepRwy = document.getElementById('hangar-dep-rwy');
+
+        // Initialize 3D hangar scene
+        initHangar3DScene();
+
+        // Populate airport dropdowns
+        Object.keys(KANSAS_AIRPORTS).forEach(code => {
+          const apt = KANSAS_AIRPORTS[code];
+          const opt1 = document.createElement('option');
+          opt1.value = code;
+          opt1.textContent = `${code} - ${apt.name}`;
+          hangarDeparture.appendChild(opt1);
+
+          const opt2 = document.createElement('option');
+          opt2.value = code;
+          opt2.textContent = `${code} - ${apt.name}`;
+          hangarDestination.appendChild(opt2);
+        });
+
+        // Aircraft button selection (syncs with 3D click selection)
+        aircraftBtns.forEach(btn => {
+          btn.addEventListener('click', () => {
+            selectHangarAircraft(btn.dataset.aircraft);
+            updateHangarStatus();
+          });
+        });
+
+        // Update route info when airports change
+        function updateHangarRoute() {
+          const dep = hangarDeparture.value;
+          const dest = hangarDestination.value;
+
+          if (dep && dest && dep !== dest) {
+            const depApt = KANSAS_AIRPORTS[dep];
+            const destApt = KANSAS_AIRPORTS[dest];
+            const distance = calcDistance(depApt.lat, depApt.lon, destApt.lat, destApt.lon);
+            const course = calcCourse(depApt.lat, depApt.lon, destApt.lat, destApt.lon);
+            const cruiseSpeed = flightPlan.aircraft === 'udaan' ? 150 : 100;
+            const timeMin = (distance / cruiseSpeed) * 60;
+            const rwyNum = Math.round(depApt.runway_heading_deg / 10);
+
+            hangarDistance.textContent = `${distance.toFixed(1)} nm`;
+            hangarCourse.textContent = `${Math.round(course)}°`;
+            hangarTime.textContent = `${Math.round(timeMin)} min`;
+            hangarDepRwy.textContent = `RWY ${String(rwyNum).padStart(2, '0')}`;
+            hangarRouteInfo.classList.add('visible');
+
+            flightPlan.departure = dep;
+            flightPlan.destination = dest;
+            flightPlan.created = false;
+
+            hangarCreateBtn.disabled = false;
+            hangarFlyBtn.disabled = true;
+            hangarStatus.textContent = 'Ready to create flight';
+            hangarStatus.className = 'hangar-status';
+          } else {
+            hangarRouteInfo.classList.remove('visible');
+            hangarCreateBtn.disabled = true;
+            hangarFlyBtn.disabled = true;
+            hangarStatus.textContent = dep === dest ? 'Select different airports' : 'Select departure and destination';
+            hangarStatus.className = 'hangar-status';
+          }
+        }
+
+        function updateHangarStatus() {
+          updateHangarRoute();
+        }
+
+        hangarDeparture.addEventListener('change', updateHangarRoute);
+        hangarDestination.addEventListener('change', updateHangarRoute);
+
+        // Create Flight button
+        hangarCreateBtn.addEventListener('click', () => {
+          if (!flightPlan.departure || !flightPlan.destination) return;
+
+          hangarStatus.textContent = 'Creating flight plan...';
+          hangarCreateBtn.disabled = true;
+
+          const depApt = KANSAS_AIRPORTS[flightPlan.departure];
+          const destApt = KANSAS_AIRPORTS[flightPlan.destination];
+          const distance = calcDistance(depApt.lat, depApt.lon, destApt.lat, destApt.lon);
+
+          // Send create_flight command via WebSocket
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'create_flight',
+              aircraft: flightPlan.aircraft,
+              origin: flightPlan.departure,
+              destination: flightPlan.destination,
+              origin_config: depApt,
+              dest_config: destApt,
+              distance_nm: distance
+            }));
+            console.log('[Hangar] Sent create_flight:', flightPlan.departure, '->', flightPlan.destination);
+
+            // Assume success after a moment (server response will confirm)
+            setTimeout(() => {
+              if (!flightPlan.created) {
+                flightPlan.created = true;
+                hangarFlyBtn.disabled = false;
+                hangarStatus.textContent = 'Flight plan ready!';
+                hangarStatus.className = 'hangar-status ready';
+              }
+            }, 500);
+          } else {
+            // Offline mode
+            flightPlan.controllerParams = {
+              cruise_alt_ft: Math.min(8000, Math.max(2500, 1500 + distance * 80)),
+              tp_distance_nm: Math.min(15, Math.max(5, distance * 0.2)),
+              pattern_alt_ft: 1000
+            };
+            flightPlan.created = true;
+            hangarFlyBtn.disabled = false;
+            hangarStatus.textContent = 'Flight ready (offline mode)';
+            hangarStatus.className = 'hangar-status ready';
+          }
+        });
+
+        // Fly button - transition to flight mode
+        hangarFlyBtn.addEventListener('click', () => {
+          if (!flightPlan.created) return;
+
+          hangarStatus.textContent = 'Starting flight...';
+
+          // Send start_flight command with restart flag to start from ground roll
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            const depApt = KANSAS_AIRPORTS[flightPlan.departure];
+            const destApt = KANSAS_AIRPORTS[flightPlan.destination];
+            ws.send(JSON.stringify({
+              type: 'start_flight',
+              restart: true,  // Critical: restart simulation from beginning
+              phase: 'GROUND_ROLL',  // Start from ground roll
+              aircraft: flightPlan.aircraft,
+              origin: flightPlan.departure,
+              destination: flightPlan.destination,
+              origin_config: depApt,
+              dest_config: destApt,
+              controller_params: flightPlan.controllerParams
+            }));
+            console.log('[Hangar] Starting NEW flight from GROUND_ROLL at', flightPlan.departure);
+          }
+
+          // Transition to flight mode
+          exitHangarMode();
+        });
+
+        // Listen for server responses
+        window.addEventListener('flight_plan_created', (e) => {
+          flightPlan.controllerParams = e.detail.controller_params;
+          flightPlan.created = true;
+          hangarFlyBtn.disabled = false;
+          hangarStatus.textContent = 'Flight plan ready!';
+          hangarStatus.className = 'hangar-status ready';
+        });
+      }
+
+      function exitHangarMode() {
+        hangarMode = false;
+        const hangarOverlay = document.getElementById('hangar-overlay');
+        hangarOverlay.classList.add('hidden');
+
+        // Update nav info
+        document.getElementById('nav-origin').textContent = flightPlan.departure;
+        document.getElementById('nav-dest').textContent = flightPlan.destination;
+        const depApt = KANSAS_AIRPORTS[flightPlan.departure];
+        const destApt = KANSAS_AIRPORTS[flightPlan.destination];
+        document.getElementById('nav-origin-rwy').textContent = `RWY ${String(Math.round(depApt.runway_heading_deg / 10)).padStart(2, '0')}`;
+        document.getElementById('nav-dest-rwy').textContent = `RWY ${String(Math.round(destApt.runway_heading_deg / 10)).padStart(2, '0')}`;
+
+        // Load the correct aircraft model if Udaan was selected
+        if (flightPlan.aircraft === 'udaan' && modelGroup) {
+          // Remove current model
+          scene.remove(modelGroup);
+          modelGroup = null;
+          model = null;
+
+          // Load Udaan model
+          loader.load('Udaan-Product4.gltf', (gltf) => {
+            model = gltf.scene;
+            const UDAAN_SCALE = 12;
+            model.scale.set(UDAAN_SCALE, UDAAN_SCALE, UDAAN_SCALE);
+            model.rotation.order = 'YXZ';
+            model.rotation.x = Math.PI / 2;
+            model.rotation.y = Math.PI;
+            model.rotation.z = 0;
+
+            model.traverse((obj) => {
+              if (obj.isMesh) {
+                obj.material = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.5, metalness: 0.3 });
+              }
+            });
+
+            modelGroup = new THREE.Group();
+            modelGroup.add(model);
+
+            model.updateMatrixWorld(true);
+            const box = new THREE.Box3().setFromObject(model);
+            const center = box.getCenter(new THREE.Vector3());
+            model.position.set(-center.x, -box.min.y, -center.z);
+
+            scene.add(modelGroup);
+            console.log('[Hangar] Loaded Udaan aircraft');
+          });
+        }
+
+        console.log('[Hangar] Exited hangar mode, starting flight');
+      }
+
+      // Initialize hangar mode on load
+      initHangarMode();
+
+      // Calculate great circle distance in nautical miles
+      function calcDistance(lat1, lon1, lat2, lon2) {
+        const R = 3440.065; // Earth radius in nautical miles
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+      }
+
+      // Calculate initial course bearing
+      function calcCourse(lat1, lon1, lat2, lon2) {
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const lat1Rad = lat1 * Math.PI / 180;
+        const lat2Rad = lat2 * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2Rad);
+        const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+                  Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+        const brng = Math.atan2(y, x) * 180 / Math.PI;
+        return (brng + 360) % 360;
+      }
+
+      function initFlightSetup() {
+        const departureSelect = document.getElementById('departure-select');
+        const destinationSelect = document.getElementById('destination-select');
+        const createFlightBtn = document.getElementById('create-flight-btn');
+        const flyBtn = document.getElementById('fly-btn');
+        const routePreview = document.getElementById('route-preview');
+        const flightStatus = document.getElementById('flight-status');
+        const previewDistance = document.getElementById('preview-distance');
+        const previewCourse = document.getElementById('preview-course');
+        const previewTime = document.getElementById('preview-time');
+
+        // Populate airport dropdowns
+        Object.keys(KANSAS_AIRPORTS).forEach(code => {
+          const apt = KANSAS_AIRPORTS[code];
+          const optionDep = document.createElement('option');
+          optionDep.value = code;
+          optionDep.textContent = `${code} - ${apt.name}`;
+          departureSelect.appendChild(optionDep);
+
+          const optionDest = document.createElement('option');
+          optionDest.value = code;
+          optionDest.textContent = `${code} - ${apt.name}`;
+          destinationSelect.appendChild(optionDest);
+        });
+
+        // Update route preview when selections change
+        function updateRoutePreview() {
+          const dep = departureSelect.value;
+          const dest = destinationSelect.value;
+
+          if (dep && dest && dep !== dest) {
+            const depApt = KANSAS_AIRPORTS[dep];
+            const destApt = KANSAS_AIRPORTS[dest];
+            const distance = calcDistance(depApt.lat, depApt.lon, destApt.lat, destApt.lon);
+            const course = calcCourse(depApt.lat, depApt.lon, destApt.lat, destApt.lon);
+            const cruiseSpeed = 100; // kts estimate
+            const timeMin = (distance / cruiseSpeed) * 60;
+
+            previewDistance.textContent = `${distance.toFixed(1)} nm`;
+            previewCourse.textContent = `${Math.round(course)}°`;
+            previewTime.textContent = `${Math.round(timeMin)} min`;
+            routePreview.style.display = 'block';
+
+            flightPlan.departure = dep;
+            flightPlan.destination = dest;
+            flightPlan.created = false;
+
+            createFlightBtn.disabled = false;
+            flyBtn.disabled = true;
+            flightStatus.textContent = 'Ready to create flight';
+            flightStatus.className = '';
+
+            // Update nav info display
+            document.getElementById('nav-origin').textContent = dep;
+            document.getElementById('nav-dest').textContent = dest;
+            document.getElementById('nav-origin-rwy').textContent = `RWY ${String(Math.round(depApt.runway_heading_deg / 10)).padStart(2, '0')}`;
+            document.getElementById('nav-dest-rwy').textContent = `RWY ${String(Math.round(destApt.runway_heading_deg / 10)).padStart(2, '0')}`;
+            document.getElementById('nav-course').textContent = Math.round(course);
+          } else {
+            routePreview.style.display = 'none';
+            createFlightBtn.disabled = true;
+            flyBtn.disabled = true;
+            flightStatus.textContent = dep === dest ? 'Select different airports' : 'Select departure and destination';
+            flightStatus.className = '';
+          }
+        }
+
+        departureSelect.addEventListener('change', updateRoutePreview);
+        destinationSelect.addEventListener('change', updateRoutePreview);
+
+        // Create Flight button
+        createFlightBtn.addEventListener('click', () => {
+          if (!flightPlan.departure || !flightPlan.destination) return;
+
+          flightStatus.textContent = 'Creating flight plan...';
+          createFlightBtn.disabled = true;
+
+          const depApt = KANSAS_AIRPORTS[flightPlan.departure];
+          const destApt = KANSAS_AIRPORTS[flightPlan.destination];
+          const distance = calcDistance(depApt.lat, depApt.lon, destApt.lat, destApt.lon);
+
+          // Send create_flight command via WebSocket
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'create_flight',
+              aircraft: flightPlan.aircraft,
+              origin: flightPlan.departure,
+              destination: flightPlan.destination,
+              origin_config: depApt,
+              dest_config: destApt,
+              distance_nm: distance
+            }));
+            console.log('[Flight] Sent create_flight command:', flightPlan.departure, '->', flightPlan.destination);
+          } else {
+            // Fallback: create default controller params locally
+            flightPlan.controllerParams = {
+              cruise_alt_ft: Math.min(8000, Math.max(2500, 1500 + distance * 80)),
+              tp_distance_nm: Math.min(15, Math.max(5, distance * 0.2)),
+              pattern_alt_ft: 1000,
+              glideslope_deg: 3.0,
+              v_approach_kts: 70,
+              v_cruise_kts: 100
+            };
+            flightPlan.created = true;
+            flyBtn.disabled = false;
+            flightStatus.textContent = `Flight ready (offline mode)`;
+            flightStatus.className = 'ready';
+            console.log('[Flight] Created flight plan locally (no WebSocket)');
+          }
+        });
+
+        // Fly button
+        flyBtn.addEventListener('click', () => {
+          if (!flightPlan.created) return;
+
+          flightStatus.textContent = 'Starting flight...';
+          flightStatus.className = 'flying';
+          flyBtn.disabled = true;
+
+          // Send start_flight command
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'start_flight',
+              origin: flightPlan.departure,
+              destination: flightPlan.destination,
+              controller_params: flightPlan.controllerParams
+            }));
+            console.log('[Flight] Sent start_flight command');
+          }
+        });
+
+        // Listen for flight plan responses
+        window.addEventListener('flight_plan_created', (e) => {
+          const data = e.detail;
+          flightPlan.controllerParams = data.controller_params;
+          flightPlan.created = true;
+          flyBtn.disabled = false;
+          flightStatus.textContent = `Flight plan created`;
+          flightStatus.className = 'ready';
+          console.log('[Flight] Received flight plan:', data);
+        });
+
+        window.addEventListener('flight_started', (e) => {
+          flightStatus.textContent = 'Flight in progress';
+          flightStatus.className = 'flying';
+          console.log('[Flight] Flight started');
+        });
+      }
+
+      // Initialize flight setup panel
+      initFlightSetup();
+
+      // Handle WebSocket messages for flight setup
+      const originalOnMessage = ws.onmessage;
+      ws.onmessage = (event) => {
+        // Call original handler first
+        if (originalOnMessage) originalOnMessage(event);
+
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'flight_plan_created') {
+            window.dispatchEvent(new CustomEvent('flight_plan_created', { detail: data }));
+          } else if (data.type === 'flight_started') {
+            window.dispatchEvent(new CustomEvent('flight_started', { detail: data }));
+          }
+        } catch (e) { /* ignore parse errors */ }
+      };
     }
   </script>
 </body>
