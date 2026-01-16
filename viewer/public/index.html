@@ -568,6 +568,71 @@
       letter-spacing: 0.15em;
     }
 
+    /* Light switch control panel */
+    .hangar-light-switch {
+      position: absolute;
+      top: 30px;
+      left: 30px;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      padding: 15px 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+      pointer-events: auto;
+    }
+    .hangar-light-switch .switch-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .hangar-light-switch .switch-icon {
+      font-size: 20px;
+    }
+    .hangar-light-switch .switch-title {
+      font-size: 12px;
+      color: var(--text);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .hangar-light-switch .switch-slider {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .hangar-light-switch input[type="range"] {
+      -webkit-appearance: none;
+      width: 120px;
+      height: 6px;
+      background: linear-gradient(to right, #333 0%, #ffd700 100%);
+      border-radius: 3px;
+      outline: none;
+    }
+    .hangar-light-switch input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      background: var(--accent);
+      border-radius: 50%;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .hangar-light-switch input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      background: var(--accent);
+      border-radius: 50%;
+      cursor: pointer;
+      border: none;
+    }
+    .hangar-light-switch .switch-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--warn);
+      min-width: 45px;
+      text-align: right;
+    }
+
     /* Aircraft selection buttons at bottom */
     .aircraft-selector {
       position: absolute;
@@ -614,14 +679,13 @@
     /* Flight plan panel on right side */
     .hangar-flight-panel {
       position: absolute;
-      top: 50%;
+      top: 120px;
       right: 30px;
-      transform: translateY(-50%);
       background: rgba(0, 0, 0, 0.7);
       backdrop-filter: blur(15px);
       border-radius: 16px;
-      padding: 25px 30px;
-      min-width: 320px;
+      padding: 20px 25px;
+      min-width: 280px;
       border: 1px solid rgba(255,255,255,0.1);
       pointer-events: auto;
     }
@@ -760,6 +824,18 @@
     <div class="hangar-ui">
       <div class="hangar-title">AIDA Flight Simulator</div>
       <div class="hangar-subtitle">Select Your Aircraft</div>
+
+      <!-- Light switch control -->
+      <div class="hangar-light-switch">
+        <div class="switch-header">
+          <span class="switch-icon">💡</span>
+          <span class="switch-title">Hangar Lights</span>
+        </div>
+        <div class="switch-slider">
+          <input type="range" id="hangar-light-slider" min="0.2" max="2" step="0.1" value="1">
+          <span class="switch-value" id="hangar-light-label">100%</span>
+        </div>
+      </div>
 
       <!-- Aircraft selection buttons at bottom -->
       <div class="aircraft-selector">
@@ -2250,27 +2326,38 @@ function updateHud(data, viewerPos) {
 
         // ===== LIGHTING =====
 
-        // Ambient light
-        const ambientLight = new THREE.AmbientLight(0x404050, 0.4);
-        hangarScene.add(ambientLight);
+        // Store lights for intensity control
+        const hangarLights = [];
+        let hangarLightIntensity = 1.0;  // Default intensity multiplier
 
-        // Main overhead lights (industrial style)
+        // Ambient light - brighter base
+        const ambientLight = new THREE.AmbientLight(0x606070, 0.8);
+        hangarScene.add(ambientLight);
+        hangarLights.push({ light: ambientLight, baseIntensity: 0.8, type: 'ambient' });
+
+        // Hemisphere light for better fill
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+        hemiLight.position.set(0, 30, 0);
+        hangarScene.add(hemiLight);
+        hangarLights.push({ light: hemiLight, baseIntensity: 0.6, type: 'hemi' });
+
+        // Main overhead lights (industrial style) - more lights, brighter
         const lightPositions = [
-          [-25, 25, -15], [25, 25, -15],
-          [-25, 25, 15], [25, 25, 15],
-          [0, 25, 0]
+          [-30, 25, -20], [0, 25, -20], [30, 25, -20],
+          [-30, 25, 0], [0, 25, 0], [30, 25, 0],
+          [-30, 25, 20], [0, 25, 20], [30, 25, 20]
         ];
 
         lightPositions.forEach(pos => {
           // Light fixture geometry
           const fixtureGeometry = new THREE.CylinderGeometry(2, 2.5, 1, 16);
-          const fixtureMaterial = new THREE.MeshStandardMaterial({ color: 0x666666, metalness: 0.9, roughness: 0.2 });
+          const fixtureMaterial = new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.9, roughness: 0.2, emissive: 0x333333 });
           const fixture = new THREE.Mesh(fixtureGeometry, fixtureMaterial);
           fixture.position.set(pos[0], pos[1], pos[2]);
           hangarScene.add(fixture);
 
-          // Spotlight
-          const spotlight = new THREE.SpotLight(0xfff5e6, 2, 50, Math.PI / 4, 0.3, 1);
+          // Spotlight - brighter
+          const spotlight = new THREE.SpotLight(0xfff8f0, 3, 60, Math.PI / 3, 0.2, 1);
           spotlight.position.set(pos[0], pos[1] - 0.5, pos[2]);
           spotlight.target.position.set(pos[0], 0, pos[2]);
           spotlight.castShadow = true;
@@ -2278,15 +2365,30 @@ function updateHud(data, viewerPos) {
           spotlight.shadow.mapSize.height = 1024;
           hangarScene.add(spotlight);
           hangarScene.add(spotlight.target);
+          hangarLights.push({ light: spotlight, baseIntensity: 3, type: 'spot' });
         });
 
         // Light from outside (through open door)
-        const outsideLight = new THREE.DirectionalLight(0x87ceeb, 0.8);
+        const outsideLight = new THREE.DirectionalLight(0x87ceeb, 1.2);
         outsideLight.position.set(0, 20, 60);
         outsideLight.target.position.set(0, 0, 0);
         outsideLight.castShadow = true;
         hangarScene.add(outsideLight);
         hangarScene.add(outsideLight.target);
+        hangarLights.push({ light: outsideLight, baseIntensity: 1.2, type: 'directional' });
+
+        // Function to adjust all hangar lights
+        window.setHangarLightIntensity = function(multiplier) {
+          hangarLightIntensity = multiplier;
+          hangarLights.forEach(({ light, baseIntensity }) => {
+            light.intensity = baseIntensity * multiplier;
+          });
+          // Update light switch UI
+          const slider = document.getElementById('hangar-light-slider');
+          if (slider) slider.value = multiplier;
+          const label = document.getElementById('hangar-light-label');
+          if (label) label.textContent = Math.round(multiplier * 100) + '%';
+        };
 
         // ===== LOAD AIRCRAFT MODELS =====
 
@@ -2294,24 +2396,17 @@ function updateHud(data, viewerPos) {
 
         // Cessna 172 - left position (large scale for hangar display)
         hangarLoader.load('Cessna172.gltf', (gltf) => {
-          const cessna = gltf.scene;
-          const CESSNA_SCALE = 12;  // Large scale for hangar display
-          cessna.scale.set(CESSNA_SCALE, CESSNA_SCALE, CESSNA_SCALE);
+          const cessnaModel = gltf.scene;
+          const CESSNA_SCALE = 36;  // 2X scale for hangar display
+          cessnaModel.scale.set(CESSNA_SCALE, CESSNA_SCALE, CESSNA_SCALE);
 
           // Apply correct orientation (same as flight viewer)
-          cessna.rotation.order = 'YXZ';
-          cessna.rotation.x = Math.PI / 2;   // Pitch model up from Y to face forward
-          cessna.rotation.y = Math.PI + Math.PI / 6;  // Face forward + slight angle for display
-          cessna.rotation.z = 0;
+          cessnaModel.rotation.order = 'YXZ';
+          cessnaModel.rotation.x = Math.PI / 2;   // Pitch model up from Y to face forward
+          cessnaModel.rotation.y = Math.PI + Math.PI / 6;  // Face forward + slight angle for display
+          cessnaModel.rotation.z = 0;
 
-          // Center the model and position in hangar
-          cessna.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(cessna);
-
-          // Position on left side of hangar, on the ground
-          cessna.position.set(-18, -box.min.y + 0.1, 0);
-
-          cessna.traverse((obj) => {
+          cessnaModel.traverse((obj) => {
             if (obj.isMesh) {
               obj.material = new THREE.MeshStandardMaterial({
                 color: 0xcc0000,
@@ -2323,55 +2418,120 @@ function updateHud(data, viewerPos) {
             }
           });
 
+          // Create a group to hold the model - this allows us to center the geometry
+          const cessna = new THREE.Group();
+          cessna.add(cessnaModel);
+
+          // Calculate bounding box to find model's geometry center offset
+          cessnaModel.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(cessnaModel);
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+
+          // Offset model within group to center its geometry at the group origin
+          cessnaModel.position.set(-center.x, 0, -center.z);
+
+          // Recalculate bounding box after position offset
+          cessnaModel.updateMatrixWorld(true);
+          const box2 = new THREE.Box3().setFromObject(cessnaModel);
+
+          // Position the group at the desired location
+          const targetX = -18;
+          const targetZ = 0;
+          const baseY = -box2.min.y + 0.1;
+          cessna.position.set(targetX, baseY, targetZ);
+
+          // Store base Y for hover animation
+          cessna.userData.baseY = baseY;
           cessna.userData.aircraftType = 'cessna172';
+
           hangarScene.add(cessna);
           hangarAircraftModels['cessna172'] = cessna;
 
           // Add selection highlight ring (larger to match aircraft)
-          addSelectionRing(cessna, -18, 0, true);
+          addSelectionRing(cessna, targetX, targetZ, true);
 
-          console.log('[Hangar] Loaded Cessna 172 at scale', CESSNA_SCALE);
+          console.log('[Hangar] Loaded Cessna 172 at scale', CESSNA_SCALE, 'center offset:', center.x.toFixed(1), center.z.toFixed(1));
         });
 
-        // Udaan - right position (even larger scale since it's a smaller aircraft)
+        // Udaan - right position (realistic scale: 4.5ft wingspan vs Cessna's 36ft = 1/8th)
         hangarLoader.load('Udaan-Product4.gltf', (gltf) => {
-          const udaan = gltf.scene;
-          const UDAAN_SCALE = 16;  // Larger scale for the smaller Udaan aircraft
-          udaan.scale.set(UDAAN_SCALE, UDAAN_SCALE, UDAAN_SCALE);
+          const udaanModel = gltf.scene;
+          const UDAAN_SCALE = 9;  // 4X scale for hangar display
+          udaanModel.scale.set(UDAAN_SCALE, UDAAN_SCALE, UDAAN_SCALE);
 
-          // Apply correct orientation (same as flight viewer)
-          udaan.rotation.order = 'YXZ';
-          udaan.rotation.x = Math.PI / 2;   // Pitch model up from Y to face forward
-          udaan.rotation.y = Math.PI - Math.PI / 6;  // Face forward + slight angle for display
-          udaan.rotation.z = 0;
+          // Apply correct orientation for hangar display
+          // The model needs to be rolled upright (it was on its wing tip)
+          udaanModel.rotation.order = 'YXZ';
+          udaanModel.rotation.x = 0;
+          udaanModel.rotation.y = Math.PI - Math.PI / 6 + Math.PI / 2;  // Face forward + roll +90 degrees
+          udaanModel.rotation.z = 0;
 
-          // Center the model and position in hangar
-          udaan.updateMatrixWorld(true);
-          const box = new THREE.Box3().setFromObject(udaan);
-
-          // Position on right side of hangar, on the ground
-          udaan.position.set(18, -box.min.y + 0.1, 0);
-
-          udaan.traverse((obj) => {
+          // Keep original materials from GLTF instead of replacing them
+          let meshCount = 0;
+          udaanModel.traverse((obj) => {
             if (obj.isMesh) {
-              obj.material = new THREE.MeshStandardMaterial({
-                color: 0x3b82f6,
-                roughness: 0.4,
-                metalness: 0.3
-              });
+              meshCount++;
               obj.castShadow = true;
               obj.receiveShadow = true;
+              if (obj.material) {
+                obj.material.side = THREE.DoubleSide;
+              }
             }
           });
+          console.log('[Hangar] Udaan mesh count:', meshCount);
 
+          // Create a group to hold the model - this allows us to center the geometry
+          const udaan = new THREE.Group();
+          udaan.add(udaanModel);
+
+          // Calculate bounding box to find model's geometry center offset
+          udaanModel.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(udaanModel);
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+
+          // Offset model within group to center its geometry at the group origin
+          // This compensates for the model having non-centered geometry
+          udaanModel.position.set(-center.x, 0, -center.z);
+
+          // Recalculate bounding box after position offset
+          udaanModel.updateMatrixWorld(true);
+          const box2 = new THREE.Box3().setFromObject(udaanModel);
+
+          console.log('[Hangar] Udaan box after offset - min.y:', box2.min.y.toFixed(1), 'max.y:', box2.max.y.toFixed(1));
+
+          // Now position the group at the desired location
+          // Lift by -box2.min.y to place bottom on ground
+          const targetX = 18;
+          const targetZ = 0;
+          const baseY = -box2.min.y;
+          udaan.position.set(targetX, baseY, targetZ);
+
+          // Store base Y for hover animation
+          udaan.userData.baseY = baseY;
           udaan.userData.aircraftType = 'udaan';
+
           hangarScene.add(udaan);
           hangarAircraftModels['udaan'] = udaan;
 
           // Add selection highlight ring (larger to match aircraft)
-          addSelectionRing(udaan, 18, 0, false);
+          addSelectionRing(udaan, targetX, targetZ, false);
 
-          console.log('[Hangar] Loaded Udaan at scale', UDAAN_SCALE);
+          // Debug: log final world bounding box
+          udaan.updateMatrixWorld(true);
+          const finalBox = new THREE.Box3().setFromObject(udaan);
+          console.log('[Hangar] Udaan final world bounding box:',
+            'min:', finalBox.min.x.toFixed(1), finalBox.min.y.toFixed(1), finalBox.min.z.toFixed(1),
+            'max:', finalBox.max.x.toFixed(1), finalBox.max.y.toFixed(1), finalBox.max.z.toFixed(1));
+        },
+        // Progress callback
+        (progress) => {
+          console.log('[Hangar] Loading Udaan:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
+        },
+        // Error callback
+        (error) => {
+          console.error('[Hangar] ERROR loading Udaan model:', error);
         });
 
         // Selection rings (larger to match aircraft scale)
@@ -2394,21 +2554,21 @@ function updateHud(data, viewerPos) {
         // Add nameplates
         function addNameplate(text, x, z) {
           const canvas = document.createElement('canvas');
-          canvas.width = 512;
-          canvas.height = 128;
+          canvas.width = 256;
+          canvas.height = 64;
           const ctx = canvas.getContext('2d');
-          ctx.fillStyle = '#1a1a2e';
-          ctx.fillRect(0, 0, 512, 128);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = 'bold 48px Arial';
+          ctx.fillStyle = 'rgba(26, 26, 46, 0.8)';
+          ctx.fillRect(0, 0, 256, 64);
+          ctx.fillStyle = '#7dd3fc';
+          ctx.font = 'bold 24px Arial';
           ctx.textAlign = 'center';
-          ctx.fillText(text, 256, 80);
+          ctx.fillText(text, 128, 42);
 
           const texture = new THREE.CanvasTexture(canvas);
           const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
           const sprite = new THREE.Sprite(spriteMaterial);
-          sprite.position.set(x, 8, z + 12);
-          sprite.scale.set(15, 4, 1);
+          sprite.position.set(x, 1.5, z + 18);  // Lower and further forward
+          sprite.scale.set(8, 2, 1);  // Smaller scale
           hangarScene.add(sprite);
         }
 
@@ -2453,9 +2613,10 @@ function updateHud(data, viewerPos) {
 
           hangarControls.update();
 
-          // Subtle aircraft hover animation
+          // Subtle aircraft hover animation (use stored baseY)
           Object.values(hangarAircraftModels).forEach(aircraft => {
-            aircraft.position.y = Math.sin(Date.now() * 0.001) * 0.1;
+            const baseY = aircraft.userData.baseY || 3;
+            aircraft.position.y = baseY + Math.sin(Date.now() * 0.001) * 0.15;
           });
 
           hangarRenderer.render(hangarScene, hangarCamera);
@@ -2523,6 +2684,21 @@ function updateHud(data, viewerPos) {
 
         // Initialize 3D hangar scene
         initHangar3DScene();
+
+        // Light switch slider
+        const lightSlider = document.getElementById('hangar-light-slider');
+        const lightLabel = document.getElementById('hangar-light-label');
+        if (lightSlider) {
+          lightSlider.addEventListener('input', (e) => {
+            const value = parseFloat(e.target.value);
+            if (window.setHangarLightIntensity) {
+              window.setHangarLightIntensity(value);
+            }
+            if (lightLabel) {
+              lightLabel.textContent = Math.round(value * 100) + '%';
+            }
+          });
+        }
 
         // Populate airport dropdowns
         Object.keys(KANSAS_AIRPORTS).forEach(code => {
