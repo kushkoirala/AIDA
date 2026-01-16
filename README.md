@@ -26,6 +26,57 @@ AIDA is a research framework that combines classical control theory with modern 
 
 ---
 
+## What's New (January 2026)
+
+### 🛫 3D Hangar Mode
+
+The viewer now features an immersive **3D hangar environment** for aircraft selection before flight. Users can orbit around life-sized aircraft models and click to select their aircraft.
+
+![3D Hangar](docs/img/Hangar.png)
+
+**Features:**
+- Interactive aircraft selection with visual highlighting
+- Adjustable hangar lighting with ambient control slider
+- Realistic aircraft scaling (Cessna 172 and Udaan prototype)
+- Smooth camera transitions between hangar and flight modes
+
+### ✈️ Multiple Kansas Airports
+
+Added support for **multiple departure and destination airports** across Kansas:
+
+| Airport | Name | Elevation |
+|---------|------|-----------|
+| KHUT | Hutchinson Regional | 1,524 ft |
+| KICT | Wichita Dwight D. Eisenhower | 1,333 ft |
+| KSLN | Salina Regional | 1,288 ft |
+| KGBD | Great Bend Municipal | 1,887 ft |
+| SN65 | Lake Waltanna (Private) | 1,532 ft |
+
+### 📐 Flight Path Calculator
+
+New **flight path planning system** that automatically calculates:
+- Optimal cruise altitude based on distance
+- Procedure turn geometry for runway alignment
+- Waypoint generation with turn anticipation
+- Glideslope intercept positioning
+
+### 🤖 Transformer-Based Controllers
+
+Introduced experimental **transformer neural network architectures** for flight control:
+- Multi-head attention for temporal sequence modeling
+- Position encoding for time-aware predictions
+- Comparison studies with traditional MLP architectures
+
+### 🎮 Controller Improvements
+
+Enhanced the expert FSM controller with:
+- Improved phase transition logic
+- Better wind compensation during approach
+- Smoother control surface actuation
+- Refined landing flare maneuver
+
+---
+
 ## Table of Contents
 
 1. [System Architecture](#system-architecture)
@@ -421,8 +472,9 @@ Internal research project - Kushal Koirala
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| **V1.1** | Jan 16, 2026 | 3D hangar mode, multiple airports, flight path calculator, transformer controllers |
 | **V1.0** | Jan 11, 2026 | LLM flight commands, cross-country demo, residual RL V2 |
 
 ---
 
-**Last Updated**: January 11, 2026
+**Last Updated**: January 16, 2026
