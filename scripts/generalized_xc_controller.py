@@ -400,6 +400,42 @@ class GeneralizedXCController:
             "override_altitude": self.override_altitude,
         }
 
+    def get_target_altitude_ft(self) -> float:
+        """Get the current target altitude based on phase and overrides.
+
+        Returns the altitude the controller is trying to achieve:
+        - During climb/cruise: cruise_altitude_ft (or override if active)
+        - During approach: calculated glideslope altitude
+        - During ground operations: 0
+        """
+        if self.override_active and self.override_altitude is not None:
+            return self.override_altitude
+
+        if self.phase in (XCPhase.CLIMB, XCPhase.CRUISE):
+            return self.cruise_altitude_ft
+        elif self.phase in (XCPhase.INTERCEPT_LEG, XCPhase.FINAL_APPROACH):
+            # Glideslope - would need current position to calculate
+            # Return pattern altitude as approximation
+            return self.pattern_altitude_ft
+        else:
+            return self.cruise_altitude_ft  # Default to cruise
+
+    def get_target_heading_deg(self) -> float:
+        """Get the current target heading based on phase and overrides.
+
+        Returns the heading the controller is trying to achieve.
+        """
+        if self.override_active and self.override_heading is not None:
+            return self.override_heading
+
+        if self.phase in (XCPhase.GROUND_ROLL, XCPhase.ROTATION, XCPhase.INITIAL_CLIMB):
+            return self.origin.runway_heading_deg
+        elif self.phase in (XCPhase.INTERCEPT_LEG, XCPhase.FINAL_APPROACH, XCPhase.FLARE, XCPhase.ROLLOUT):
+            return np.rad2deg(self.runway_heading) % 360
+        else:
+            # Cruise - heading to destination
+            return np.rad2deg(np.arctan2(self.tp_y_ft, self.tp_x_ft)) % 360
+
     def _normalize_angle(self, angle: float) -> float:
         """Normalize angle to [-pi, pi]."""
         while angle > np.pi:

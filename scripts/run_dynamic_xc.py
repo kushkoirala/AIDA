@@ -69,6 +69,10 @@ shared_state = {
     "origin_config": None,
     "dest_config": None,
     "sim_time": 0.0,
+    # Flight plan parameters (for LLM context)
+    "cruise_altitude_ft": CRUISE_ALTITUDE_FT,
+    "target_altitude_ft": 0.0,  # Current altitude the controller is commanding
+    "target_heading_deg": 0.0,  # Current heading the controller is commanding
 }
 
 # Flight state management
@@ -414,6 +418,11 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
 
                 update_telemetry(state, action, controller.phase.name, distance_to_dest, origin, earth)
                 shared_state["sim_time"] = sim_time
+
+                # Update flight plan parameters for LLM context
+                shared_state["cruise_altitude_ft"] = controller.cruise_altitude_ft
+                shared_state["target_altitude_ft"] = controller.get_target_altitude_ft()
+                shared_state["target_heading_deg"] = controller.get_target_heading_deg()
 
                 # Phase change logging
                 if controller.phase != last_phase:

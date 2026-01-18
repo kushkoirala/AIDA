@@ -136,6 +136,14 @@ class FlightCommandParser:
                 },
                 "required": ["airport_code"]
             }
+        },
+        {
+            "name": "return_to_cruise",
+            "description": "Return to the planned cruise altitude. Use when pilot says 'return to cruise', 'resume cruise altitude', or wants to go back to the flight plan altitude.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
         }
     ]
 
@@ -161,8 +169,22 @@ class FlightCommandParser:
         else:
             print("[LLM Server] Using rule-based command parsing")
 
-    def parse(self, text: str) -> FlightCommand:
-        """Parse natural language command into structured command"""
+    def parse(self, text: str, flight_context: Optional[dict] = None) -> FlightCommand:
+        """Parse natural language command into structured command.
+
+        Args:
+            text: Natural language command from pilot
+            flight_context: Optional dict with current flight state:
+                - altitude: Current altitude in feet
+                - heading: Current heading in degrees
+                - airspeed: Current airspeed in knots
+                - phase: Current flight phase
+                - origin: Origin airport code
+                - destination: Destination airport code
+                - cruise_altitude: Planned cruise altitude
+                - target_altitude: Current target altitude
+        """
+        self._flight_context = flight_context or {}
         text_lower = text.lower().strip()
 
         # Try LLM first if available
@@ -236,12 +258,35 @@ class FlightCommandParser:
         # Build xLAM tool-calling prompt
         tools_json = json.dumps(self.TOOLS, indent=2)
 
+        # Build flight context string if available
+        ctx = self._flight_context
+        context_str = ""
+        if ctx:
+            origin = ctx.get('origin', 'Unknown')
+            dest = ctx.get('destination', 'Unknown')
+            alt = ctx.get('altitude', 0)
+            hdg = ctx.get('heading', 0)
+            spd = ctx.get('airspeed', 0)
+            phase = ctx.get('phase', 'Unknown')
+            cruise = ctx.get('cruise_altitude', 0)
+            dist = ctx.get('distance', 0)
+
+            context_str = f"""
+CURRENT FLIGHT STATUS:
+- Route: {origin} → {dest}
+- Phase: {phase}
+- Altitude: {alt:.0f} ft (cruise altitude: {cruise:.0f} ft)
+- Heading: {hdg:.0f}°
+- Airspeed: {spd:.0f} kts
+- Distance to destination: {dist:.1f} nm
+"""
+
         prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|}}>
 
 You are AIDA, an intelligent flight assistant for a Cessna 172 Skyhawk flight simulator. You help pilots with flight commands and questions.
 
 Aircraft Info: You are flying a Cessna 172 Skyhawk - a single-engine, four-seat, high-wing aircraft. Cruise speed ~120 knots, service ceiling 13,500 ft, range ~640 nm.
-
+{context_str}
 You can use tools for specific actions. When using tools, respond with a JSON array:
 [{{"name": "tool_name", "arguments": {{"arg1": "value1"}}}}]
 
@@ -250,6 +295,7 @@ Available tools:
 
 IMPORTANT Guidelines:
 - For flight commands (turn, climb, descend, land at SPECIFIC airport), use the appropriate tool
+- For "return to cruise" or "resume cruise altitude", use the return_to_cruise tool (NOT set_altitude)
 - For distance/heading to airports IN THE DATABASE (SN65, KHUT, KICT, KAAO, K50K), use get_distance_to_airport
 - For airport details, use get_airport_info
 - ONLY use get_status when user explicitly asks for "status", "position", or "where am I"
@@ -322,6 +368,14 @@ IMPORTANT Guidelines:
                             return FlightCommand(
                                 action="airport_info",
                                 target=args.get("airport_code"),
+                                raw_text=text
+                            )
+                        elif tool_name == "return_to_cruise":
+                            # Get cruise altitude from flight context
+                            cruise_alt = self._flight_context.get("cruise_altitude", 5500)
+                            return FlightCommand(
+                                action="altitude",
+                                value=cruise_alt,
                                 raw_text=text
                             )
                 except json.JSONDecodeError as e:
@@ -435,7 +489,11 @@ class FlightController:
             "origin": None,
             "destination": None,
             "lat": 0.0,
-            "lon": 0.0
+            "lon": 0.0,
+            # Flight plan context
+            "cruise_altitude": 0,
+            "target_altitude": 0,
+            "target_heading": 0,
         }
         self._telemetry_task = None
         self._telemetry_ws = None
@@ -501,6 +559,10 @@ class FlightController:
                             self.current_state["destination"] = data.get("destination")
                             self.current_state["lat"] = data.get("lat", 0.0)
                             self.current_state["lon"] = data.get("lon", 0.0)
+                            # Flight plan context
+                            self.current_state["cruise_altitude"] = data.get("cruise_altitude_ft", 0)
+                            self.current_state["target_altitude"] = data.get("target_altitude_ft", 0)
+                            self.current_state["target_heading"] = data.get("target_heading_deg", 0)
                         except json.JSONDecodeError:
                             pass
             except Exception as e:
@@ -668,8 +730,8 @@ class LLMCommandServer:
             text = data.get("text", "")
             print(f"[LLM Server] Command received: '{text}'")
 
-            # Parse the command
-            cmd = self.parser.parse(text)
+            # Parse the command with flight context
+            cmd = self.parser.parse(text, flight_context=self.controller.current_state)
             print(f"[LLM Server] Parsed: action={cmd.action}, value={cmd.value}, target={cmd.target}")
 
             # Handle unknown commands
