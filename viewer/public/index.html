@@ -162,7 +162,27 @@
     .nav-section.departure .nav-value { color: var(--ok); }
     .nav-section.arrival .nav-value { color: var(--accent); }
     .nav-divider { width: 1px; height: 40px; background: rgba(255,255,255,0.15); }
-
+    #hangar-btn {
+      background: #3d2a1f;
+      color: var(--warn);
+      border: 1px solid #5c3d2a;
+      border-radius: 6px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: all 0.15s ease;
+      margin-left: 10px;
+    }
+    #hangar-btn:hover {
+      background: #4d3a2a;
+      border-color: var(--warn);
+    }
+    #hangar-btn:active {
+      background: #2d1a0f;
+    }
 
     #hud {
       position: absolute;
@@ -1005,7 +1025,7 @@
     <div id="flight-status">Select departure and destination</div>
   </div>
 
-<div id="nav-info">    <div class="nav-section departure"><div class="nav-label">FROM</div><div class="nav-value" id="nav-origin">----</div><div class="nav-sub" id="nav-origin-rwy">RWY --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">DIST</div><div class="nav-value" id="nav-distance">--</div><div class="nav-sub" id="nav-eta">ETA --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">CRS</div><div class="nav-value" id="nav-course">---</div><div class="nav-sub">TRUE</div></div>    <div class="nav-divider"></div>    <div class="nav-section arrival"><div class="nav-label">TO</div><div class="nav-value" id="nav-dest">----</div><div class="nav-sub" id="nav-dest-rwy">RWY --</div></div>  </div>
+<div id="nav-info">    <div class="nav-section departure"><div class="nav-label">FROM</div><div class="nav-value" id="nav-origin">----</div><div class="nav-sub" id="nav-origin-rwy">RWY --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">DIST</div><div class="nav-value" id="nav-distance">--</div><div class="nav-sub" id="nav-eta">ETA --</div></div>    <div class="nav-divider"></div>    <div class="nav-section"><div class="nav-label">CRS</div><div class="nav-value" id="nav-course">---</div><div class="nav-sub">TRUE</div></div>    <div class="nav-divider"></div>    <div class="nav-section arrival"><div class="nav-label">TO</div><div class="nav-value" id="nav-dest">----</div><div class="nav-sub" id="nav-dest-rwy">RWY --</div></div>    <button id="hangar-btn" title="Return to hangar">Hangar</button>  </div>
 
   <div id="hud">
     <div class="line">
@@ -1486,6 +1506,162 @@
       courseLineKHUT_KAAO.computeLineDistances();
       scene.add(courseLineKHUT_KAAO);
 
+      // ===== KICT AIRPORT (Wichita Eisenhower National) =====
+      // KICT position: x=6156m*M_TO_FT north, y=15000m*M_TO_FT east from SN65
+      // In scene coords: X=East, Z=-North
+      const KICT_POS_X = 49213;   // 15000m * 3.28084 = ~49,213 ft East
+      const KICT_POS_Z = -20203;  // 6156m * 3.28084 = ~20,203 ft North (negative Z)
+
+      // KICT Runway 01/19 - heading 14/194 degrees
+      const kictRwyLen = 7000;  // feet
+      const kictRwyWid = 100;   // feet
+
+      const kictRwyGroup = new THREE.Group();
+      kictRwyGroup.position.set(KICT_POS_X, GROUND_Y, KICT_POS_Z);
+
+      // Runway tarmac
+      const kictRwyGeom = new THREE.PlaneGeometry(kictRwyWid, kictRwyLen);
+      const kictRwyMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
+      const kictRunway = new THREE.Mesh(kictRwyGeom, kictRwyMat);
+      kictRunway.position.set(0, 0.01, 0);
+      kictRunway.rotation.x = -Math.PI / 2;
+      kictRwyGroup.add(kictRunway);
+
+      // Runway centerline stripes
+      const kictStripeLen = 120;
+      const kictStripeGap = 80;
+      const kictNumStripes = Math.floor(kictRwyLen / (kictStripeLen + kictStripeGap));
+      for (let i = 0; i < kictNumStripes; i++) {
+        const stripeGeom = new THREE.PlaneGeometry(3, kictStripeLen);
+        const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const stripe = new THREE.Mesh(stripeGeom, stripeMat);
+        stripe.position.set(0, 0.02, -kictRwyLen/2 + i * (kictStripeLen + kictStripeGap) + kictStripeLen/2);
+        stripe.rotation.x = -Math.PI / 2;
+        kictRwyGroup.add(stripe);
+      }
+
+      // RWY 01 number (heading 14)
+      const rwy01Label = createRunwayLabel('01', 90);
+      rwy01Label.position.set(0, 0.02, kictRwyLen/2 - 180);
+      rwy01Label.rotation.x = -Math.PI / 2;
+      rwy01Label.rotation.z = Math.PI;
+      kictRwyGroup.add(rwy01Label);
+
+      // RWY 19 number
+      const rwy19Label = createRunwayLabel('19', 90);
+      rwy19Label.position.set(0, 0.02, -kictRwyLen/2 + 180);
+      rwy19Label.rotation.x = -Math.PI / 2;
+      rwy19Label.rotation.z = 0;
+      kictRwyGroup.add(rwy19Label);
+
+      // Rotate group: RWY 01 heading 14 means +Z points toward 14 deg
+      // Rotation: -(14-180) = 166 deg around Y, or simpler: -14 deg
+      kictRwyGroup.rotation.y = -(14 - 180) * Math.PI / 180;
+      scene.add(kictRwyGroup);
+
+      // KICT identifier
+      const kictIdLabel = createRunwayLabel('KICT', 100);
+      kictIdLabel.position.set(KICT_POS_X + 200, GROUND_Y + 1, KICT_POS_Z);
+      kictIdLabel.rotation.x = -Math.PI / 2;
+      scene.add(kictIdLabel);
+
+      // KICT Beacon column (blue)
+      const kictBeaconGeom = new THREE.CylinderGeometry(40, 40, 5000, 8);
+      const kictBeaconMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.15 });
+      const kictBeacon = new THREE.Mesh(kictBeaconGeom, kictBeaconMat);
+      kictBeacon.position.set(KICT_POS_X, GROUND_Y + 2500, KICT_POS_Z);
+      scene.add(kictBeacon);
+
+      // Course line from SN65 to KICT
+      const coursePointsSN65_KICT = [
+        new THREE.Vector3(0, GROUND_Y + 10, 0),
+        new THREE.Vector3(KICT_POS_X, GROUND_Y + 10, KICT_POS_Z)
+      ];
+      const courseGeomSN65_KICT = new THREE.BufferGeometry().setFromPoints(coursePointsSN65_KICT);
+      const courseMatSN65_KICT = new THREE.LineDashedMaterial({
+        color: 0x3b82f6, dashSize: 500, gapSize: 300, transparent: true, opacity: 0.4
+      });
+      const courseLineSN65_KICT = new THREE.Line(courseGeomSN65_KICT, courseMatSN65_KICT);
+      courseLineSN65_KICT.computeLineDistances();
+      scene.add(courseLineSN65_KICT);
+
+      // ===== K50K AIRPORT (Pawnee Municipal) =====
+      // K50K position: x=215034ft north, y=-436524ft west from SN65
+      // In scene coords: X=East (negative=West), Z=-North
+      const K50K_POS_X = -436524;  // West in feet (negative X)
+      const K50K_POS_Z = -215034;  // North in feet (negative Z)
+
+      // K50K Runway 17/35 - heading 170/350 degrees
+      const k50kRwyLen = 3800;  // feet
+      const k50kRwyWid = 60;    // feet
+
+      const k50kRwyGroup = new THREE.Group();
+      k50kRwyGroup.position.set(K50K_POS_X, GROUND_Y, K50K_POS_Z);
+
+      // Runway tarmac
+      const k50kRwyGeom = new THREE.PlaneGeometry(k50kRwyWid, k50kRwyLen);
+      const k50kRwyMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.7, metalness: 0.2 });
+      const k50kRunway = new THREE.Mesh(k50kRwyGeom, k50kRwyMat);
+      k50kRunway.position.set(0, 0.01, 0);
+      k50kRunway.rotation.x = -Math.PI / 2;
+      k50kRwyGroup.add(k50kRunway);
+
+      // Runway centerline stripes
+      const k50kStripeLen = 100;
+      const k50kStripeGap = 60;
+      const k50kNumStripes = Math.floor(k50kRwyLen / (k50kStripeLen + k50kStripeGap));
+      for (let i = 0; i < k50kNumStripes; i++) {
+        const stripeGeom = new THREE.PlaneGeometry(2, k50kStripeLen);
+        const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const stripe = new THREE.Mesh(stripeGeom, stripeMat);
+        stripe.position.set(0, 0.02, -k50kRwyLen/2 + i * (k50kStripeLen + k50kStripeGap) + k50kStripeLen/2);
+        stripe.rotation.x = -Math.PI / 2;
+        k50kRwyGroup.add(stripe);
+      }
+
+      // RWY 17 number (heading 170)
+      const k50kRwy17Label = createRunwayLabel('17', 90);
+      k50kRwy17Label.position.set(0, 0.02, k50kRwyLen/2 - 150);
+      k50kRwy17Label.rotation.x = -Math.PI / 2;
+      k50kRwy17Label.rotation.z = Math.PI;
+      k50kRwyGroup.add(k50kRwy17Label);
+
+      // RWY 35 number
+      const k50kRwy35Label = createRunwayLabel('35', 90);
+      k50kRwy35Label.position.set(0, 0.02, -k50kRwyLen/2 + 150);
+      k50kRwy35Label.rotation.x = -Math.PI / 2;
+      k50kRwy35Label.rotation.z = 0;
+      k50kRwyGroup.add(k50kRwy35Label);
+
+      // Rotate group: RWY 17 heading 170
+      k50kRwyGroup.rotation.y = -(170 - 180) * Math.PI / 180;
+      scene.add(k50kRwyGroup);
+
+      // K50K identifier
+      const k50kIdLabel = createRunwayLabel('K50K', 100);
+      k50kIdLabel.position.set(K50K_POS_X + 200, GROUND_Y + 1, K50K_POS_Z);
+      k50kIdLabel.rotation.x = -Math.PI / 2;
+      scene.add(k50kIdLabel);
+
+      // K50K Beacon column (purple)
+      const k50kBeaconGeom = new THREE.CylinderGeometry(25, 25, 5000, 8);
+      const k50kBeaconMat = new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.15 });
+      const k50kBeacon = new THREE.Mesh(k50kBeaconGeom, k50kBeaconMat);
+      k50kBeacon.position.set(K50K_POS_X, GROUND_Y + 2500, K50K_POS_Z);
+      scene.add(k50kBeacon);
+
+      // Course line from SN65 to K50K
+      const coursePointsSN65_K50K = [
+        new THREE.Vector3(0, GROUND_Y + 10, 0),
+        new THREE.Vector3(K50K_POS_X, GROUND_Y + 10, K50K_POS_Z)
+      ];
+      const courseGeomSN65_K50K = new THREE.BufferGeometry().setFromPoints(coursePointsSN65_K50K);
+      const courseMatSN65_K50K = new THREE.LineDashedMaterial({
+        color: 0xa855f7, dashSize: 500, gapSize: 300, transparent: true, opacity: 0.4
+      });
+      const courseLineSN65_K50K = new THREE.Line(courseGeomSN65_K50K, courseMatSN65_K50K);
+      courseLineSN65_K50K.computeLineDistances();
+      scene.add(courseLineSN65_K50K);
 
       // Runway 17 (north end, facing south) - reciprocal of 35
       const rwy17Label = createRunwayLabel('17', 90);
@@ -1584,8 +1760,9 @@
     function setupViewer() {
       // Allow WebSocket port to be specified via URL query parameter
       // Usage: index.html?wsport=8766 (or ?wshost=192.168.1.100&wsport=8766)
+      // Default to page hostname for remote access (e.g., via Tailscale)
       const urlParams = new URLSearchParams(window.location.search);
-      const wsHost = urlParams.get('wshost') || '127.0.0.1';
+      const wsHost = urlParams.get('wshost') || window.location.hostname || 'localhost';
       const wsPort = urlParams.get('wsport') || '8765';
       const wsUrl = `ws://${wsHost}:${wsPort}`;
       let ws;
@@ -2192,6 +2369,24 @@ function updateHud(data, viewerPos) {
       let hangarRaycaster = null;
       let hangarMouse = null;
 
+      // Hangar animation loop (defined globally so enterHangarMode can restart it)
+      function animateHangar() {
+        if (!hangarMode) return;
+        requestAnimationFrame(animateHangar);
+
+        if (hangarControls) hangarControls.update();
+
+        // Subtle aircraft hover animation
+        Object.values(hangarAircraftModels).forEach(aircraft => {
+          const baseY = aircraft.userData.baseY || 3;
+          aircraft.position.y = baseY + Math.sin(Date.now() * 0.001) * 0.15;
+        });
+
+        if (hangarRenderer && hangarScene && hangarCamera) {
+          hangarRenderer.render(hangarScene, hangarCamera);
+        }
+      }
+
       function initHangar3DScene() {
         const canvas = document.getElementById('hangar-canvas');
         if (!canvas) return;
@@ -2606,21 +2801,7 @@ function updateHud(data, viewerPos) {
           }
         });
 
-        // Animation loop
-        function animateHangar() {
-          if (!hangarMode) return;
-          requestAnimationFrame(animateHangar);
-
-          hangarControls.update();
-
-          // Subtle aircraft hover animation (use stored baseY)
-          Object.values(hangarAircraftModels).forEach(aircraft => {
-            const baseY = aircraft.userData.baseY || 3;
-            aircraft.position.y = baseY + Math.sin(Date.now() * 0.001) * 0.15;
-          });
-
-          hangarRenderer.render(hangarScene, hangarCamera);
-        }
+        // Start hangar animation loop (function defined globally)
         animateHangar();
       }
 
@@ -2905,6 +3086,56 @@ function updateHud(data, viewerPos) {
 
       // Initialize hangar mode on load
       initHangarMode();
+
+      // Enter hangar mode (return from flight)
+      function enterHangarMode() {
+        hangarMode = true;
+        const hangarOverlay = document.getElementById('hangar-overlay');
+        hangarOverlay.classList.remove('hidden');
+
+        // Reset flight plan state
+        flightPlan.departure = null;
+        flightPlan.destination = null;
+        flightPlan.created = false;
+
+        // Reset nav info display
+        document.getElementById('nav-origin').textContent = '----';
+        document.getElementById('nav-dest').textContent = '----';
+        document.getElementById('nav-origin-rwy').textContent = 'RWY --';
+        document.getElementById('nav-dest-rwy').textContent = 'RWY --';
+        document.getElementById('nav-distance').textContent = '--';
+        document.getElementById('nav-course').textContent = '---';
+
+        // Reset hangar UI selections
+        const hangarDeparture = document.getElementById('hangar-departure');
+        const hangarDestination = document.getElementById('hangar-destination');
+        const hangarStatus = document.getElementById('hangar-status');
+        if (hangarDeparture) hangarDeparture.value = '';
+        if (hangarDestination) hangarDestination.value = '';
+        if (hangarStatus) {
+          hangarStatus.textContent = 'Select departure and destination';
+          hangarStatus.className = 'hangar-status';
+        }
+
+        // Restart hangar animation loop
+        animateHangar();
+
+        console.log('[Hangar] Entered hangar mode');
+      }
+
+      // Hangar button click handler
+      const hangarBtn = document.getElementById('hangar-btn');
+      if (hangarBtn) {
+        hangarBtn.addEventListener('click', () => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            // Send stop_flight command to server
+            ws.send(JSON.stringify({ type: 'stop_flight' }));
+            console.log('[CMD] Sent stop_flight command');
+          }
+          // Enter hangar mode in viewer
+          enterHangarMode();
+        });
+      }
 
       // Calculate great circle distance in nautical miles
       function calcDistance(lat1, lon1, lat2, lon2) {

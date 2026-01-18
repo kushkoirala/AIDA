@@ -32,7 +32,13 @@ checkpoints/
 bc_data/
 logs/
 *.npz
-*.zip
+
+# LLM models (too large for git - download separately)
+llm/models/*.gguf
+
+# Production models - these ARE tracked in git
+# models/*.zip is explicitly included (see below)
+!models/
 
 # Claude/AI tools
 .claude/

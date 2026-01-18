@@ -280,6 +280,191 @@ KHUT = Airport(
 )
 
 
+# Wichita Dwight D. Eisenhower National Airport (KICT) - Major Hub
+KICT = Airport(
+    icao="KICT",
+    name="Wichita Dwight D. Eisenhower National Airport",
+    city="Wichita",
+    state="KS",
+    lat=37.650,
+    lon=-97.433,
+    elevation_ft=1333.0,
+    is_towered=True,
+    atis_freq=127.9,
+    tower_freq=118.2,
+    ground_freq=121.9,
+    runways=[
+        # Primary Runway 1L/19R (longest)
+        Runway(
+            id="1L/19R",
+            length_ft=10301.0,
+            width_ft=150.0,
+            surface=SurfaceType.CONCRETE,
+            condition="excellent",
+            end_1=RunwayEnd(
+                designator="1L",
+                lat=37.6375,
+                lon=-97.4350,
+                elevation_ft=1320.0,
+                heading_true=14.0,
+                heading_mag=10.0,
+                traffic_pattern=TrafficPattern.LEFT,
+                has_ils=True,
+                has_vasi=True,
+                glide_slope_deg=3.0,
+            ),
+            end_2=RunwayEnd(
+                designator="19R",
+                lat=37.6625,
+                lon=-97.4310,
+                elevation_ft=1333.0,
+                heading_true=194.0,
+                heading_mag=190.0,
+                traffic_pattern=TrafficPattern.RIGHT,
+                has_ils=True,
+                has_vasi=True,
+                glide_slope_deg=3.0,
+            ),
+        ),
+    ],
+)
+
+
+# Colonel James Jabara Airport (KAAO) - Reliever
+KAAO = Airport(
+    icao="KAAO",
+    name="Colonel James Jabara Airport",
+    city="Wichita",
+    state="KS",
+    lat=37.747,
+    lon=-97.221,
+    elevation_ft=1421.0,
+    is_towered=True,
+    tower_freq=120.3,
+    ctaf_freq=120.3,
+    runways=[
+        # Primary Runway 18/36
+        Runway(
+            id="18/36",
+            length_ft=6101.0,
+            width_ft=100.0,
+            surface=SurfaceType.ASPHALT,
+            condition="excellent",
+            end_1=RunwayEnd(
+                designator="18",
+                lat=37.7545,
+                lon=-97.2210,
+                elevation_ft=1421.0,
+                heading_true=180.0,
+                heading_mag=176.0,
+                traffic_pattern=TrafficPattern.LEFT,
+                has_papi=True,
+                glide_slope_deg=3.0,
+            ),
+            end_2=RunwayEnd(
+                designator="36",
+                lat=37.7395,
+                lon=-97.2210,
+                elevation_ft=1421.0,
+                heading_true=360.0,
+                heading_mag=356.0,
+                traffic_pattern=TrafficPattern.LEFT,
+                has_papi=True,
+                glide_slope_deg=3.0,
+            ),
+        ),
+    ],
+)
+
+
+# Newton City-County Airport (KEWK)
+KEWK = Airport(
+    icao="KEWK",
+    name="Newton City-County Airport",
+    city="Newton",
+    state="KS",
+    lat=38.058,
+    lon=-97.276,
+    elevation_ft=1533.0,
+    is_towered=False,
+    ctaf_freq=122.8,
+    runways=[
+        # Primary Runway 17/35
+        Runway(
+            id="17/35",
+            length_ft=5500.0,
+            width_ft=75.0,
+            surface=SurfaceType.ASPHALT,
+            condition="good",
+            end_1=RunwayEnd(
+                designator="17",
+                lat=38.0660,
+                lon=-97.2760,
+                elevation_ft=1533.0,
+                heading_true=174.0,
+                heading_mag=170.0,
+                traffic_pattern=TrafficPattern.LEFT,
+                has_vasi=True,
+                glide_slope_deg=3.0,
+            ),
+            end_2=RunwayEnd(
+                designator="35",
+                lat=38.0500,
+                lon=-97.2760,
+                elevation_ft=1533.0,
+                heading_true=354.0,
+                heading_mag=350.0,
+                traffic_pattern=TrafficPattern.LEFT,
+                has_vasi=True,
+                glide_slope_deg=3.0,
+            ),
+        ),
+    ],
+)
+
+
+# Pawnee Municipal Airport (K50K)
+K50K = Airport(
+    icao="K50K",
+    name="Pawnee Municipal Airport",
+    city="Pawnee",
+    state="KS",
+    lat=38.184,
+    lon=-99.127,
+    elevation_ft=2200.0,
+    is_towered=False,
+    ctaf_freq=122.9,
+    runways=[
+        # Primary Runway 17/35
+        Runway(
+            id="17/35",
+            length_ft=3800.0,
+            width_ft=60.0,
+            surface=SurfaceType.ASPHALT,
+            condition="fair",
+            end_1=RunwayEnd(
+                designator="17",
+                lat=38.1900,
+                lon=-99.1270,
+                elevation_ft=2200.0,
+                heading_true=170.0,
+                heading_mag=166.0,
+                traffic_pattern=TrafficPattern.LEFT,
+            ),
+            end_2=RunwayEnd(
+                designator="35",
+                lat=38.1780,
+                lon=-99.1270,
+                elevation_ft=2200.0,
+                heading_true=350.0,
+                heading_mag=346.0,
+                traffic_pattern=TrafficPattern.LEFT,
+            ),
+        ),
+    ],
+)
+
+
 # =============================================================================
 # Airport Registry
 # =============================================================================
@@ -287,6 +472,10 @@ KHUT = Airport(
 AIRPORTS: Dict[str, Airport] = {
     "SN65": SN65,
     "KHUT": KHUT,
+    "KICT": KICT,
+    "KAAO": KAAO,
+    "KEWK": KEWK,
+    "K50K": K50K,
 }
 
 

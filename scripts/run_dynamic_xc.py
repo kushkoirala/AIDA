@@ -180,20 +180,16 @@ def setup_flight(origin_icao, dest_icao):
     dynamics = FlightSimulator(n_instances=1, dt=0.02, use_gpu=False)
 
     # Initial position at origin airport runway centerline
-    # Following the same approach as run_xc_sn65_khut.py which works correctly.
-    #
     # Key insight: The viewer's runway visual is centered at the airport reference point
     # and the centerline passes through this center. Aircraft must start ON the centerline.
     #
-    # For each airport, the runway centerline in world coords is:
-    # - SN65: centerline at Y=0 (viewer X=0), extending along X axis (North-South)
-    # - KICT: centerline passes through (6156m, 15000m), extending along heading 14°
-    # - KHUT: centerline passes through (52800m, -21300m), extending along heading 314°
-    #
-    # The aircraft should start at the airport center, offset 400m behind threshold
-    # along the backcourse direction, BUT staying ON the visual centerline.
+    # IMPORTANT: Use viewer_runway_heading_deg for positioning, NOT runway_heading_deg.
+    # The viewer may render runways at simplified headings (e.g., SN65 at 0° instead of 4°).
+    # Using the viewer heading ensures aircraft starts on the visual centerline.
 
-    runway_hdg_rad = np.deg2rad(origin.runway_heading_deg)
+    # Get the viewer's runway heading for positioning (may differ from real heading)
+    viewer_hdg_deg = origin.get_viewer_heading_deg()
+    viewer_hdg_rad = np.deg2rad(viewer_hdg_deg)
     start_offset_m = 400.0  # meters behind threshold (along runway direction)
 
     # Airport center in world coordinates (meters)
@@ -201,23 +197,21 @@ def setup_flight(origin_icao, dest_icao):
     airport_y_m = origin.y_ft * FT_TO_M
 
     # The backcourse direction for positioning behind threshold
-    backcourse_rad = runway_hdg_rad + np.pi
+    backcourse_rad = viewer_hdg_rad + np.pi
 
     # Calculate start position: offset behind threshold along runway direction
     start_x = airport_x_m + start_offset_m * np.cos(backcourse_rad)
     start_y = airport_y_m + start_offset_m * np.sin(backcourse_rad)
     start_z = 0.0
 
-    # For visual alignment with viewer runway, we use the runway heading directly
-    # The viewer expects aircraft heading to match runway heading for takeoff
-    # Use the actual runway heading (not 0°) so aircraft points down runway
-    aircraft_heading_rad = runway_hdg_rad
+    # Aircraft heading matches viewer runway heading for visual alignment
+    aircraft_heading_rad = viewer_hdg_rad
 
     # Debug output to verify aircraft position
     print(f"\n[INIT] Origin: {origin_icao} ({origin.name})")
     print(f"[INIT] Airport center: ({airport_x_m:.1f}m N, {airport_y_m:.1f}m E)")
     print(f"[INIT]                 ({origin.x_ft:.0f}ft N, {origin.y_ft:.0f}ft E)")
-    print(f"[INIT] Runway heading: {origin.runway_heading_deg:.1f}°")
+    print(f"[INIT] Display heading: {origin.runway_heading_deg:.1f}° | Viewer heading: {viewer_hdg_deg:.1f}°")
     print(f"[INIT] Start position: ({start_x:.1f}m N, {start_y:.1f}m E)")
     print(f"[INIT] Start in feet:  ({start_x*M_TO_FT:.0f}ft N, {start_y*M_TO_FT:.0f}ft E)")
     print(f"[INIT] Viewer coords:  X={start_y*M_TO_FT:.0f}ft (E), Z={-start_x*M_TO_FT:.0f}ft (-N)")
@@ -228,7 +222,7 @@ def setup_flight(origin_icao, dest_icao):
     initial_states[0, StateIndex.Y] = start_y
     initial_states[0, StateIndex.Z] = start_z
     initial_states[0, StateIndex.U] = 5.0  # Taxi speed
-    initial_states[0, StateIndex.PSI] = runway_hdg_rad
+    initial_states[0, StateIndex.PSI] = aircraft_heading_rad
     dynamics.reset(initial_states)
 
     # Create controller with origin at origin airport

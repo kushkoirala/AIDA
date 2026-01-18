@@ -8,7 +8,9 @@ class AIDAChatbot {
     this.ws = null;
     this.connected = false;
     this.callsign = "AIDA-1";
-    this.serverUrl = "ws://localhost:8766";
+    // Use same host as page to support remote access (e.g., via Tailscale)
+    const wsHost = window.location.hostname || 'localhost';
+    this.serverUrl = `ws://${wsHost}:8766`;
     this.messageHistory = [];
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 5;

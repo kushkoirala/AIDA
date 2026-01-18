@@ -1,0 +1,22 @@
+{
+  "num_routes": 200,
+  "airports": [
+    "SN65",
+    "KHUT",
+    "KICT",
+    "KAAO",
+    "KEWK",
+    "KSLC",
+    "KELY",
+    "KMCI",
+    "SYN01",
+    "SYN02",
+    "SYN03"
+  ],
+  "max_waypoints": 8,
+  "waypoint_dim": 6,
+  "route_input_dim": 10,
+  "controller_param_dim": 8,
+  "generated_at": "2026-01-15T20:15:55.863217",
+  "seed": 42
+}

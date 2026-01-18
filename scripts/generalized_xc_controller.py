@@ -83,17 +83,30 @@ class AirportConfig:
     Positions can be specified in either:
     - Local XY coordinates (x_ft, y_ft) - used directly
     - Lat/Lon coordinates (lat, lon) - converted using reference point
+
+    The viewer_runway_heading_deg is the heading of the runway as rendered
+    in the 3D viewer. This may differ from the real runway_heading_deg due to
+    simplifications in the viewer (e.g., SN65's runway is rendered at 0°
+    even though the real runway is at 4°). Aircraft positioning uses this
+    field to ensure the aircraft starts on the visual centerline.
     """
     icao: str                        # ICAO code (e.g., "KHUT")
     name: str                        # Full name
     x_ft: float = 0.0               # X position in feet (north from origin)
     y_ft: float = 0.0               # Y position in feet (east from origin)
     elevation_ft: float = 0.0       # Field elevation MSL in feet
-    runway_heading_deg: float = 0.0  # Primary runway heading (magnetic)
+    runway_heading_deg: float = 0.0  # Primary runway heading (for display)
+    viewer_runway_heading_deg: Optional[float] = None  # Heading in viewer (for positioning)
 
     # Optional lat/lon (converted to x_ft/y_ft if provided)
     lat: Optional[float] = None
     lon: Optional[float] = None
+
+    def get_viewer_heading_deg(self) -> float:
+        """Get the runway heading as rendered in the viewer."""
+        if self.viewer_runway_heading_deg is not None:
+            return self.viewer_runway_heading_deg
+        return self.runway_heading_deg
 
     def get_threshold_position(self, threshold_offset_ft: float = 2000.0):
         """
@@ -113,6 +126,8 @@ class AirportConfig:
 
 
 # Pre-defined airport configurations for Kansas region
+# NOTE: viewer_runway_heading_deg is the heading of the runway as rendered in the
+# 3D viewer. This must match the visual runway or aircraft will start off-centerline.
 KANSAS_AIRPORTS = {
     "SN65": AirportConfig(
         icao="SN65",
@@ -121,6 +136,7 @@ KANSAS_AIRPORTS = {
         y_ft=0.0,
         elevation_ft=1448.0,
         runway_heading_deg=4.0,
+        viewer_runway_heading_deg=0.0,  # Viewer runway is North-South (no rotation)
         lat=37.594167,
         lon=-97.615833
     ),
@@ -131,6 +147,7 @@ KANSAS_AIRPORTS = {
         y_ft=-21300.0 * M_TO_FT,  # ~-69,882 ft
         elevation_ft=1542.0,
         runway_heading_deg=314.0,
+        viewer_runway_heading_deg=314.0,  # Viewer runway matches real heading
         lat=38.066167,
         lon=-97.860500
     ),
@@ -141,32 +158,29 @@ KANSAS_AIRPORTS = {
         y_ft=15000.0 * M_TO_FT,   # ~15km east
         elevation_ft=1333.0,
         runway_heading_deg=14.0,
+        viewer_runway_heading_deg=14.0,  # Viewer runway matches real heading
         lat=37.649944,
         lon=-97.433056
     ),
     "KAAO": AirportConfig(
         icao="KAAO",
         name="Colonel James Jabara Airport",
-        # Position computed from lat/lon relative to SN65
-        # KAAO: 37.7475, -97.2214 vs SN65: 37.5942, -97.6158
-        # Delta: +0.1533 lat (~9.2nm north), +0.3944 lon (~19nm east)
         x_ft=55880.0,   # ~9.2nm north of SN65
         y_ft=115140.0,  # ~19nm east of SN65
         elevation_ft=1421.0,
-        runway_heading_deg=180.0,  # Runway 18/36, using RWY 18
+        runway_heading_deg=180.0,
+        viewer_runway_heading_deg=180.0,  # Viewer runway matches real heading
         lat=37.747500,
         lon=-97.221389
     ),
     "K50K": AirportConfig(
         icao="K50K",
         name="Pawnee Municipal Airport",
-        # Position computed from lat/lon relative to SN65
-        # K50K: 38.184, -99.127 vs SN65: 37.5942, -97.6158
-        # Delta: +0.59 lat (~65.5km north), -1.51 lon (~133km west)
         x_ft=215034.0,   # ~65.5km north of SN65
         y_ft=-436524.0,  # ~133km west of SN65 (negative = west)
         elevation_ft=2200.0,
-        runway_heading_deg=170.0,  # Runway 17/35, using RWY 17
+        runway_heading_deg=170.0,
+        viewer_runway_heading_deg=170.0,  # Viewer runway matches real heading
         lat=38.184,
         lon=-99.127
     ),
