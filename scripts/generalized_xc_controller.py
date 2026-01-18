@@ -157,6 +157,19 @@ KANSAS_AIRPORTS = {
         lat=37.747500,
         lon=-97.221389
     ),
+    "K50K": AirportConfig(
+        icao="K50K",
+        name="Pawnee Municipal Airport",
+        # Position computed from lat/lon relative to SN65
+        # K50K: 38.184, -99.127 vs SN65: 37.5942, -97.6158
+        # Delta: +0.59 lat (~65.5km north), -1.51 lon (~133km west)
+        x_ft=215034.0,   # ~65.5km north of SN65
+        y_ft=-436524.0,  # ~133km west of SN65 (negative = west)
+        elevation_ft=2200.0,
+        runway_heading_deg=170.0,  # Runway 17/35, using RWY 17
+        lat=38.184,
+        lon=-99.127
+    ),
 }
 
 
