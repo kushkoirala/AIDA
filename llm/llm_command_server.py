@@ -144,6 +144,38 @@ class FlightCommandParser:
                 "type": "object",
                 "properties": {}
             }
+        },
+        {
+            "name": "get_nearest_airport",
+            "description": "Find the nearest airport to current position. Use for emergencies or when pilot asks 'where can I land' or 'nearest airport'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "calculate_time_to_destination",
+            "description": "Calculate estimated time to reach destination based on current speed and distance. Use when pilot asks 'how long', 'ETA', or 'time to destination'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "calculate_top_of_descent",
+            "description": "Calculate when to start descent for destination. Use when pilot asks 'when should I descend', 'top of descent', or 'TOD'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "get_situation_report",
+            "description": "Get a comprehensive situation report including position, nearby airports, fuel state estimate, and recommendations. Use for 'sitrep', 'situation', or 'brief me'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
         }
     ]
 
@@ -283,25 +315,44 @@ CURRENT FLIGHT STATUS:
 
         prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|}}>
 
-You are AIDA, an intelligent flight assistant for a Cessna 172 Skyhawk flight simulator. You help pilots with flight commands and questions.
+You are AIDA (Autonomous Intelligent Decision Assistant), a professional flight assistant and copilot for a Cessna 172 Skyhawk simulator. You speak like an experienced pilot - calm, confident, and concise.
 
-Aircraft Info: You are flying a Cessna 172 Skyhawk - a single-engine, four-seat, high-wing aircraft. Cruise speed ~120 knots, service ceiling 13,500 ft, range ~640 nm.
+AIRCRAFT: Cessna 172 Skyhawk (N172SP)
+- Single-engine, high-wing, 4-seat general aviation aircraft
+- Engine: Lycoming IO-360-L2A, 180 HP
+- Cruise speed: 120 KTAS at 75% power
+- Vne (never exceed): 163 KTAS
+- Vs0 (stall, flaps): 48 KTAS | Vs1 (stall, clean): 53 KTAS
+- Service ceiling: 14,000 ft
+- Range: ~640 nm with 45 min reserve
+- Fuel capacity: 56 gal (53 usable)
+- Fuel burn: ~10 GPH cruise
 {context_str}
-You can use tools for specific actions. When using tools, respond with a JSON array:
-[{{"name": "tool_name", "arguments": {{"arg1": "value1"}}}}]
+NAVIGATION DATABASE: SN65 (Lake Waltanna), KHUT (Hutchinson Regional), KICT (Wichita Eisenhower), KAAO (Jabara), K50K (Pawnee Municipal)
+
+You can use tools for actions. When using tools, respond with JSON array:
+[{{"name": "tool_name", "arguments": {{}}}}]
 
 Available tools:
 {tools_json}
 
-IMPORTANT Guidelines:
-- For flight commands (turn, climb, descend, land at SPECIFIC airport), use the appropriate tool
-- For "return to cruise" or "resume cruise altitude", use the return_to_cruise tool (NOT set_altitude)
-- For distance/heading to airports IN THE DATABASE (SN65, KHUT, KICT, KAAO, K50K), use get_distance_to_airport
-- For airport details, use get_airport_info
-- ONLY use get_status when user explicitly asks for "status", "position", or "where am I"
-- For general questions about the aircraft, aviation, what's around, or conversation, respond naturally WITHOUT using any tools
-- If user asks about a location NOT in the database, respond that it's not in the nav database
-- Keep responses concise and pilot-friendly
+GUIDELINES:
+- For flight commands (turn, climb, descend, land), use the appropriate tool
+- For "return to cruise", use return_to_cruise tool
+- For "nearest airport" or emergency landing options, use get_nearest_airport
+- For "how long" / "ETA" / "time remaining", use calculate_time_to_destination
+- For "when to descend" / "top of descent" / "TOD", use calculate_top_of_descent
+- For "sitrep" / "situation" / "brief me", use get_situation_report
+- For airport distance/bearing, use get_distance_to_airport
+- For general aviation questions, emergencies, or conversation, respond naturally WITHOUT tools
+
+EMERGENCY PROCEDURES (respond naturally, no tools):
+- Engine failure: Best glide 68 KTAS, find nearest landing site, attempt restart (fuel, mixture, mags)
+- Electrical fire: Master OFF, all switches OFF, fire extinguisher, land ASAP
+- Engine fire: Mixture idle cutoff, fuel selector OFF, master OFF, sideslip to keep flames away
+- Spin recovery: PARE - Power idle, Ailerons neutral, Rudder opposite, Elevator forward
+
+Speak like a pilot - use standard phraseology when appropriate. Keep responses brief but helpful.
 <|eot_id|><|start_header_id|>user<|end_header_id|>
 
 {text}
@@ -376,6 +427,26 @@ IMPORTANT Guidelines:
                             return FlightCommand(
                                 action="altitude",
                                 value=cruise_alt,
+                                raw_text=text
+                            )
+                        elif tool_name == "get_nearest_airport":
+                            return FlightCommand(
+                                action="nearest_airport",
+                                raw_text=text
+                            )
+                        elif tool_name == "calculate_time_to_destination":
+                            return FlightCommand(
+                                action="time_to_dest",
+                                raw_text=text
+                            )
+                        elif tool_name == "calculate_top_of_descent":
+                            return FlightCommand(
+                                action="top_of_descent",
+                                raw_text=text
+                            )
+                        elif tool_name == "get_situation_report":
+                            return FlightCommand(
+                                action="sitrep",
                                 raw_text=text
                             )
                 except json.JSONDecodeError as e:
@@ -667,6 +738,185 @@ class FlightController:
                 available = ", ".join(self.AIRPORTS.keys())
                 result["message"] = f"Airport {target} not found. Available: {available}"
 
+        elif cmd.action == "nearest_airport":
+            # Find nearest airport
+            current_lat = self.current_state.get("lat", 0.0)
+            current_lon = self.current_state.get("lon", 0.0)
+
+            if current_lat != 0.0 and current_lon != 0.0:
+                nearest = None
+                min_dist = float('inf')
+
+                for code, airport in self.AIRPORTS.items():
+                    dist, hdg = self.calculate_distance_and_heading(
+                        current_lat, current_lon,
+                        airport["lat"], airport["lon"]
+                    )
+                    if dist < min_dist:
+                        min_dist = dist
+                        nearest = {
+                            "code": code,
+                            "name": airport["name"],
+                            "distance_nm": round(dist, 1),
+                            "heading_to": round(hdg),
+                            "elevation": airport["elevation"]
+                        }
+
+                result["success"] = True
+                result["nearest"] = nearest
+
+                # Also include other nearby airports
+                all_airports = []
+                for code, airport in self.AIRPORTS.items():
+                    dist, hdg = self.calculate_distance_and_heading(
+                        current_lat, current_lon,
+                        airport["lat"], airport["lon"]
+                    )
+                    all_airports.append({
+                        "code": code,
+                        "name": airport["name"],
+                        "distance_nm": round(dist, 1),
+                        "heading_to": round(hdg)
+                    })
+                all_airports.sort(key=lambda x: x["distance_nm"])
+                result["all_airports"] = all_airports
+            else:
+                result["success"] = False
+                result["message"] = "Current position not available"
+
+        elif cmd.action == "time_to_dest":
+            # Calculate time to destination
+            distance = self.current_state.get("distance", 0)
+            airspeed = self.current_state.get("airspeed", 0)
+
+            if airspeed > 30:  # Must be flying
+                time_hours = distance / airspeed
+                time_minutes = time_hours * 60
+                result["success"] = True
+                result["distance_nm"] = round(distance, 1)
+                result["groundspeed_kts"] = round(airspeed)  # Approximation
+                result["time_minutes"] = round(time_minutes)
+                result["time_formatted"] = f"{int(time_minutes)}:{int((time_minutes % 1) * 60):02d}"
+            else:
+                result["success"] = False
+                result["message"] = "Aircraft not in flight"
+
+        elif cmd.action == "top_of_descent":
+            # Calculate top of descent
+            # Rule of thumb: (cruise alt - field elev) / 300 = distance in nm
+            # Start descent at 3° glide (300 ft/nm)
+            cruise_alt = self.current_state.get("cruise_altitude", 5500)
+            current_alt = self.current_state.get("altitude", 0)
+            distance = self.current_state.get("distance", 0)
+            airspeed = self.current_state.get("airspeed", 120)
+            dest = self.current_state.get("destination")
+
+            # Get destination elevation
+            dest_elev = 1500  # Default
+            if dest and dest in self.AIRPORTS:
+                dest_elev = self.AIRPORTS[dest]["elevation"]
+
+            # Pattern altitude is typically 1000 ft AGL
+            pattern_alt = dest_elev + 1000
+            alt_to_lose = current_alt - pattern_alt
+
+            if alt_to_lose > 0:
+                # 3° descent = ~300 ft/nm, but use 500 fpm descent rate
+                # At 120 kts ground speed = 2 nm/min
+                # At 500 fpm = 0.5 nm per 100 ft
+                descent_distance_nm = alt_to_lose / 300  # 3° path
+                tod_distance = distance - descent_distance_nm
+
+                # Time to TOD
+                if airspeed > 30:
+                    time_to_tod_min = tod_distance / (airspeed / 60)
+                else:
+                    time_to_tod_min = 0
+
+                result["success"] = True
+                result["current_altitude"] = round(current_alt)
+                result["pattern_altitude"] = round(pattern_alt)
+                result["altitude_to_lose"] = round(alt_to_lose)
+                result["descent_distance_nm"] = round(descent_distance_nm, 1)
+                result["distance_to_dest"] = round(distance, 1)
+                result["tod_distance_from_dest"] = round(descent_distance_nm, 1)
+
+                if tod_distance > 0:
+                    result["distance_to_tod"] = round(tod_distance, 1)
+                    result["time_to_tod_min"] = round(time_to_tod_min, 1)
+                    result["status"] = "cruise"
+                else:
+                    result["distance_to_tod"] = 0
+                    result["time_to_tod_min"] = 0
+                    result["status"] = "should_descend"
+            else:
+                result["success"] = True
+                result["status"] = "at_or_below_pattern"
+                result["message"] = "Already at or below pattern altitude"
+
+        elif cmd.action == "sitrep":
+            # Comprehensive situation report
+            current_lat = self.current_state.get("lat", 0.0)
+            current_lon = self.current_state.get("lon", 0.0)
+            altitude = self.current_state.get("altitude", 0)
+            heading = self.current_state.get("heading", 0)
+            airspeed = self.current_state.get("airspeed", 0)
+            phase = self.current_state.get("phase", "UNKNOWN")
+            distance = self.current_state.get("distance", 0)
+            origin = self.current_state.get("origin")
+            dest = self.current_state.get("destination")
+            cruise_alt = self.current_state.get("cruise_altitude", 5500)
+
+            result["success"] = True
+            result["position"] = {
+                "lat": round(current_lat, 4),
+                "lon": round(current_lon, 4)
+            }
+            result["flight"] = {
+                "origin": origin,
+                "destination": dest,
+                "phase": phase,
+                "distance_remaining_nm": round(distance, 1)
+            }
+            result["aircraft"] = {
+                "altitude_ft": round(altitude),
+                "heading_deg": round(heading),
+                "airspeed_kts": round(airspeed),
+                "cruise_altitude_ft": round(cruise_alt)
+            }
+
+            # Calculate ETA
+            if airspeed > 30 and distance > 0:
+                eta_min = (distance / airspeed) * 60
+                result["eta_minutes"] = round(eta_min)
+            else:
+                result["eta_minutes"] = None
+
+            # Find nearby airports
+            if current_lat != 0.0 and current_lon != 0.0:
+                nearby = []
+                for code, airport in self.AIRPORTS.items():
+                    dist, hdg = self.calculate_distance_and_heading(
+                        current_lat, current_lon,
+                        airport["lat"], airport["lon"]
+                    )
+                    nearby.append({
+                        "code": code,
+                        "distance_nm": round(dist, 1),
+                        "heading": round(hdg)
+                    })
+                nearby.sort(key=lambda x: x["distance_nm"])
+                result["nearby_airports"] = nearby[:3]  # Top 3 nearest
+
+            # Fuel estimate (rough - 10 GPH at cruise)
+            if airspeed > 30 and distance > 0:
+                flight_time_hours = distance / airspeed
+                fuel_required_gal = flight_time_hours * 10  # 10 GPH
+                result["fuel_estimate"] = {
+                    "required_gal": round(fuel_required_gal, 1),
+                    "note": "Estimated at 10 GPH cruise burn"
+                }
+
         elif cmd.action == "conversation":
             # General conversation - pass through the LLM's response
             result["success"] = True
@@ -793,6 +1043,82 @@ class LLMCommandServer:
             elif cmd.action == "conversation":
                 # Use the LLM's natural language response
                 message = result.get("response", "I'm not sure how to respond to that.")
+            elif cmd.action == "nearest_airport":
+                if result.get("success"):
+                    nearest = result.get("nearest", {})
+                    all_apts = result.get("all_airports", [])
+                    message = (f"Nearest airport: {nearest['code']} ({nearest['name']}) - "
+                              f"{nearest['distance_nm']:.1f} nm on heading {nearest['heading_to']:03d}°, "
+                              f"elevation {nearest['elevation']} ft.")
+                    if len(all_apts) > 1:
+                        others = [f"{a['code']} ({a['distance_nm']:.1f} nm)" for a in all_apts[1:3]]
+                        message += f" Also nearby: {', '.join(others)}."
+                else:
+                    message = result.get("message", "Unable to determine nearest airport.")
+            elif cmd.action == "time_to_dest":
+                if result.get("success"):
+                    dist = result.get("distance_nm", 0)
+                    gs = result.get("groundspeed_kts", 0)
+                    time_min = result.get("time_minutes", 0)
+                    dest = self.controller.current_state.get("destination", "destination")
+                    if time_min >= 60:
+                        hours = int(time_min // 60)
+                        mins = int(time_min % 60)
+                        time_str = f"{hours} hour{'s' if hours > 1 else ''} {mins} minutes"
+                    else:
+                        time_str = f"{time_min} minutes"
+                    message = (f"Distance to {dest}: {dist:.1f} nm. "
+                              f"At current groundspeed of {gs} knots, ETA is {time_str}.")
+                else:
+                    message = result.get("message", "Unable to calculate time to destination.")
+            elif cmd.action == "top_of_descent":
+                if result.get("success"):
+                    status = result.get("status", "")
+                    if status == "should_descend":
+                        message = ("You're past the top of descent point. "
+                                  f"Begin descent now to reach pattern altitude of {result.get('pattern_altitude', 0):,} ft.")
+                    elif status == "at_or_below_pattern":
+                        message = result.get("message", "Already at or below pattern altitude.")
+                    else:
+                        tod_dist = result.get("distance_to_tod", 0)
+                        tod_time = result.get("time_to_tod_min", 0)
+                        alt_to_lose = result.get("altitude_to_lose", 0)
+                        pattern_alt = result.get("pattern_altitude", 0)
+                        message = (f"Top of descent in {tod_dist:.1f} nm ({tod_time:.0f} minutes). "
+                                  f"Descend {alt_to_lose:,} ft to pattern altitude {pattern_alt:,} ft.")
+                else:
+                    message = result.get("message", "Unable to calculate top of descent.")
+            elif cmd.action == "sitrep":
+                if result.get("success"):
+                    flight = result.get("flight", {})
+                    aircraft = result.get("aircraft", {})
+                    nearby = result.get("nearby_airports", [])
+                    eta = result.get("eta_minutes")
+
+                    # Build comprehensive sitrep
+                    phase = flight.get("phase", "UNKNOWN")
+                    dist = flight.get("distance_remaining_nm", 0)
+                    dest = flight.get("destination", "destination")
+                    alt = aircraft.get("altitude_ft", 0)
+                    hdg = aircraft.get("heading_deg", 0)
+                    spd = aircraft.get("airspeed_kts", 0)
+                    cruise_alt = aircraft.get("cruise_altitude_ft", 0)
+
+                    message = f"SITREP: {phase} phase, {dist:.1f} nm to {dest}. "
+                    message += f"Altitude {alt:,} ft (cruise {cruise_alt:,}), heading {hdg:03d}°, {spd} knots. "
+
+                    if eta:
+                        if eta >= 60:
+                            eta_str = f"{int(eta // 60)}h {int(eta % 60)}m"
+                        else:
+                            eta_str = f"{eta} minutes"
+                        message += f"ETA {eta_str}. "
+
+                    if nearby:
+                        nearest = nearby[0]
+                        message += f"Nearest: {nearest['code']} ({nearest['distance_nm']:.1f} nm, {nearest['heading']:03d}°)."
+                else:
+                    message = result.get("message", "Unable to generate situation report.")
             else:
                 message = "Command acknowledged."
 
