@@ -2,11 +2,133 @@
 
 **Advanced Reinforcement Learning Framework for Autonomous Fixed-Wing Aircraft Control**
 
-[![Version 1.0](https://img.shields.io/badge/version-1.0-brightgreen.svg)](#)
+[![Version A](https://img.shields.io/badge/version-A-brightgreen.svg)](#)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![CUDA 12.x](https://img.shields.io/badge/CUDA-12.x-green.svg)](https://developer.nvidia.com/cuda-toolkit)
-[![Stable-Baselines3](https://img.shields.io/badge/SB3-2.x-orange.svg)](https://stable-baselines3.readthedocs.io/)
-[![Phi-3 LLM](https://img.shields.io/badge/LLM-Phi--3-purple.svg)](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct)
+[![xLAM-2-8B](https://img.shields.io/badge/LLM-xLAM--2--8B-purple.svg)](https://huggingface.co/Salesforce/xLAM-2-8b-fc-r)
+[![WSL2](https://img.shields.io/badge/WSL2-Ubuntu%2022.04-orange.svg)](https://docs.microsoft.com/en-us/windows/wsl/)
+
+---
+
+## Quick Start Guide
+
+This section provides step-by-step instructions to download, install, and run the AIDA Flight Simulator.
+
+### Prerequisites
+
+- **Operating System**: Windows 11 with WSL2 (Ubuntu 22.04) or native Linux
+- **Python**: 3.10 or higher
+- **RAM**: 8+ GB (16+ GB recommended for LLM)
+- **GPU**: Optional but recommended for LLM inference
+- **Disk Space**: ~6 GB (including LLM model)
+
+### Step 1: Clone the Repository
+
+```bash
+# In WSL2 Ubuntu terminal
+cd /home
+git clone https://github.com/YOUR_USERNAME/AIDA.git
+cd AIDA
+```
+
+### Step 2: Create Python Virtual Environment
+
+```bash
+python3 -m venv .venv-linux
+source .venv-linux/bin/activate
+```
+
+### Step 3: Install Dependencies
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Install LLM support (llama-cpp-python)
+pip install llama-cpp-python
+```
+
+### Step 4: Download the LLM Model
+
+The AIDA flight assistant uses **xLAM-2-8B**, a function-calling optimized LLM.
+
+```bash
+# Create models directory
+mkdir -p llm/models
+cd llm/models
+
+# Download from Hugging Face (4.6 GB)
+wget https://huggingface.co/bartowski/Llama-xLAM-2-8B-fc-r-GGUF/resolve/main/Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf
+
+# Return to project root
+cd ../..
+```
+
+**Alternative**: Download manually from [Hugging Face](https://huggingface.co/bartowski/Llama-xLAM-2-8B-fc-r-GGUF) and place in `llm/models/`.
+
+### Step 5: Start the Simulator
+
+**Option A: All-in-One Script (Recommended)**
+
+```bash
+./start_aida.sh
+```
+
+This starts all three servers:
+- HTTP Viewer Server (port 8000)
+- Flight Dynamics Server (port 8765)
+- LLM Command Server (port 8766)
+
+**Option B: Manual Start (Three Terminals)**
+
+```bash
+# Terminal 1: HTTP Viewer Server
+cd /home/AIDA/viewer/public
+python3 -m http.server 8000
+
+# Terminal 2: Flight Dynamics Server
+cd /home/AIDA
+source .venv-linux/bin/activate
+python scripts/run_dynamic_xc.py --speed 2
+
+# Terminal 3: LLM Command Server
+cd /home/AIDA
+source .venv-linux/bin/activate
+python llm/llm_command_server.py
+```
+
+### Step 6: Open the Viewer
+
+Open your browser and navigate to:
+
+```
+http://localhost:8000
+```
+
+You will see:
+1. **3D Hangar** - Click an aircraft to select it
+2. **Flight Planning** - Choose origin/destination airports
+3. **Click "Start Flight"** - The autonomous flight begins
+
+### Step 7: Use Voice Commands (Optional)
+
+The chatbot panel in the bottom-right corner accepts natural language commands:
+
+| Command | Example |
+|---------|---------|
+| Change heading | "turn to heading 270" |
+| Change altitude | "climb to 7000 feet" |
+| Land at airport | "land at KHUT" |
+| Get status | "sitrep" or "status" |
+| Nearest airport | "nearest airport" |
+| Time to destination | "ETA" or "how long" |
+| Top of descent | "when should I descend" |
+
+### Stopping the Simulator
+
+```bash
+./stop_aida.sh
+# Or manually: pkill -f "python.*run_dynamic_xc"
+```
 
 ---
 
@@ -14,19 +136,19 @@
 
 AIDA is a research framework that combines classical control theory with modern deep reinforcement learning to achieve fully autonomous fixed-wing aircraft flight. The system has demonstrated **complete autonomous cross-country flights** from takeoff to landing, covering 31 nautical miles with precision runway alignment.
 
-### Key Achievements
+### Key Achievements (Version A)
 
 | Milestone | Description | Date |
 |-----------|-------------|------|
-| **LLM Flight Commands** | Natural language control via Phi-3 ("climb to 7000", "heading 270") | Jan 2026 |
-| **Cross-Country Flight** | 31 NM autonomous flight SN65 → KHUT with precision landing | Jan 2026 |
-| **Residual RL V2** | 7-control neural network learns corrections to expert | Jan 2026 |
-| **GPU-Accelerated Simulation** | 569,000 steps/sec with 10,000 parallel instances | Dec 2025 |
-| **Real-Time 3D Visualization** | WebSocket telemetry with audio synthesis | Dec 2025 |
+| **LLM Flight Assistant** | xLAM-2-8B with function calling for natural language control | Jan 2026 |
+| **Cross-Country Flight** | 31 NM autonomous flight SN65 to KHUT with precision landing | Jan 2026 |
+| **3D Hangar Mode** | Interactive aircraft selection in immersive hangar environment | Jan 2026 |
+| **Flight Path Planner** | Automatic waypoint generation with procedure turns | Jan 2026 |
+| **Real-Time 3D Viewer** | WebGL visualization with WebSocket telemetry | Jan 2026 |
 
 ---
 
-## What's New (January 2026)
+## What's New in Version A (January 2026)
 
 ### 🛫 3D Hangar Mode
 
@@ -107,25 +229,40 @@ The AIDA system is organized into four main layers: Training, Inference, Visuali
 
 ---
 
-## LLM Flight Commands
+## LLM Flight Assistant (AIDA)
 
-AIDA V1 introduces **natural language flight control** via an integrated chatbot interface. Pilots can issue commands in plain English, which are parsed by the Phi-3 Mini LLM and executed by the autopilot.
+AIDA includes an integrated **AI copilot** powered by xLAM-2-8B, a function-calling optimized LLM. The assistant understands natural language commands and provides intelligent flight assistance.
 
 ### Supported Commands
 
-| Command Type | Examples | Flight Phase |
-|--------------|----------|--------------|
-| **Heading** | "turn to heading 270", "fly heading 090" | CLIMB, CRUISE |
-| **Altitude** | "climb to 7000", "descend to 4000 feet" | CRUISE |
-| **Landing** | "land at KHUT", "resume landing" | CRUISE |
-| **Status** | "status", "where am I" | Any |
+| Command Type | Examples | Description |
+|--------------|----------|-------------|
+| **Heading** | "turn to heading 270", "fly heading 090" | Change aircraft heading |
+| **Altitude** | "climb to 7000", "descend to 4000 feet" | Change target altitude |
+| **Landing** | "land at KHUT", "divert to KICT" | Initiate approach to airport |
+| **Return to Cruise** | "return to cruise", "resume cruise altitude" | Return to planned cruise altitude |
+| **Status** | "status", "sitrep", "brief me" | Get comprehensive situation report |
+| **Nearest Airport** | "nearest airport", "where can I land" | Find closest airports for diversion |
+| **ETA** | "ETA", "how long", "time to destination" | Calculate time to destination |
+| **Top of Descent** | "when to descend", "TOD" | Calculate descent planning |
+| **Aviation Questions** | "what's the stall speed", "spin recovery" | Answer aviation knowledge questions |
+
+### LLM Capabilities
+
+The AIDA flight assistant includes:
+
+- **Cessna 172 Knowledge**: V-speeds, engine specs, fuel capacity, performance data
+- **Emergency Procedures**: Engine failure, electrical fire, spin recovery (PARE)
+- **Flight Planning**: ETA calculations, fuel estimates, descent planning
+- **Situational Awareness**: Nearby airports, distance/bearing to airports
+- **Professional Phraseology**: Speaks like an experienced pilot
 
 ### Architecture
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Chatbot   │────▶│  LLM Server │────▶│  Telemetry  │────▶│  Controller │
-│   (UI)      │     │  (Phi-3)    │     │  WebSocket  │     │  (Expert)   │
+│   (UI)      │     │ (xLAM-2-8B) │     │  WebSocket  │     │  (Expert)   │
 │  Port 8000  │     │  Port 8766  │     │  Port 8765  │     │             │
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
      │                    │                    │                    │
@@ -143,24 +280,7 @@ AIDA V1 introduces **natural language flight control** via an integrated chatbot
 - **Altitude Limits**: Min 1,500 ft AGL, Max 12,000 ft (service ceiling)
 - **Phase Restrictions**: Overrides disabled during approach/landing for safety
 - **Validation**: All commands validated before execution
-- **Pilot Acknowledgements**: Realistic pilot-style responses ("Roger, turning left to heading 270")
-
-### Running LLM Commands
-
-```bash
-# Terminal 1: HTTP server for viewer
-cd /home/AIDA/viewer/public && python3 -m http.server 8000
-
-# Terminal 2: LLM command server
-source .venv-linux/bin/activate
-python3 llm/llm_command_server.py --host 0.0.0.0 --port 8766
-
-# Terminal 3: Flight simulation
-python3 scripts/run_xc_sn65_khut.py
-
-# Open browser: http://localhost:8000
-# Use chatbot in bottom-right corner
-```
+- **Pilot Acknowledgements**: Realistic pilot-style responses
 
 ---
 
@@ -417,7 +537,6 @@ python scripts/run_residual_telemetry_v2.py \
 AIDA/
 ├── aida_sim/                    # Core simulation package
 │   ├── env/                     # RL environments
-│   │   └── residual_env_v2.py   # 7-control residual environment
 │   ├── dynamics/                # Flight physics
 │   └── systems/                 # Aircraft subsystems
 │
@@ -426,39 +545,37 @@ AIDA/
 │       ├── flight_dynamics.py   # GPU-accelerated 6-DOF
 │       └── aircraft_database.py # Aircraft configurations
 │
-├── scripts/                     # Training and utility scripts
-│   ├── train_residual_ppo_v2.py # Main training script
-│   ├── run_residual_telemetry_v2.py
-│   └── triangle_controller.py   # Expert FSM controller
+├── scripts/                     # Flight and training scripts
+│   ├── run_dynamic_xc.py        # Main flight dynamics server
+│   ├── generalized_xc_controller.py  # Expert FSM controller
+│   └── train_residual_ppo_v2.py # RL training script
 │
-├── viewer/                      # 3D visualization
+├── viewer/                      # 3D WebGL visualization
 │   └── public/
-│       ├── index.html           # WebGL viewer + telemetry
+│       ├── index.html           # Main viewer with hangar mode
 │       ├── chatbot.js           # LLM command chatbot UI
 │       └── chatbot.css          # Chatbot styling
 │
-├── models/                      # Trained models (git tracked)
-│   └── residual_ppo_v2_7ctrl.zip
+├── llm/                         # LLM Flight Assistant
+│   ├── llm_command_server.py    # WebSocket server (port 8766)
+│   └── models/                  # xLAM-2-8B GGUF model
+│       └── Llama-xLAM-2-8B-fc-r-Q4_K_M.gguf
 │
-├── checkpoints/                 # Training checkpoints (not in git)
-│
-├── llm/                         # LLM integration (Phi-3)
-│   ├── llm_command_server.py    # WebSocket server for natural language commands
-│   └── models/                  # Phi-3 GGUF model files
+├── start_aida.sh                # Start all servers
+├── stop_aida.sh                 # Stop all servers
+├── requirements.txt             # Python dependencies
 │
 └── docs/                        # Documentation
-    ├── img/                     # Architecture diagrams
-    └── RESIDUAL_RL_FINDINGS.md  # Training findings
+    └── img/                     # Screenshots and diagrams
 ```
 
 ---
 
 ## References
 
-1. **Stable-Baselines3**: [https://stable-baselines3.readthedocs.io/](https://stable-baselines3.readthedocs.io/)
-2. **PPO Algorithm**: Schulman et al., "Proximal Policy Optimization Algorithms" (2017)
-3. **Residual RL**: Silver et al., "Residual Policy Learning" (2018)
-4. **Flight Dynamics**: Stevens & Lewis, "Aircraft Control and Simulation" (3rd ed.)
+1. **xLAM-2-8B**: [Salesforce xLAM Function Calling Models](https://huggingface.co/Salesforce/xLAM-2-8b-fc-r)
+2. **llama-cpp-python**: [https://github.com/abetlen/llama-cpp-python](https://github.com/abetlen/llama-cpp-python)
+3. **Flight Dynamics**: Stevens & Lewis, "Aircraft Control and Simulation" (3rd ed.)
 
 ---
 
@@ -472,9 +589,8 @@ Internal research project - Kushal Koirala
 
 | Version | Date | Highlights |
 |---------|------|------------|
-| **V1.1** | Jan 16, 2026 | 3D hangar mode, multiple airports, flight path calculator, transformer controllers |
-| **V1.0** | Jan 11, 2026 | LLM flight commands, cross-country demo, residual RL V2 |
+| **Version A** | Jan 18, 2026 | xLAM-2-8B LLM integration, enhanced flight assistant, 3D hangar, autonomous cross-country flights |
 
 ---
 
-**Last Updated**: January 16, 2026
+**Last Updated**: January 18, 2026
