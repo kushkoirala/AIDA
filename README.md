@@ -13,6 +13,9 @@
 
 This section provides step-by-step instructions to download, install, and run the AIDA Flight Simulator.
 
+Latest video of the flight, simulation sped up for shorter video.
+https://youtu.be/-Fm-Y43R-iU
+
 ### Prerequisites
 
 - **Operating System**: Windows 11 with WSL2 (Ubuntu 22.04) or native Linux
