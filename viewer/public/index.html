@@ -973,12 +973,12 @@
   <!-- Pilot/Mode indicator (top right) -->
   <div id="pilot-info">
     <div class="pilot-section">
-      <div class="pilot-label">PILOT</div>
-      <div class="pilot-value" id="pilot-mode">EXPERT</div>
+      <div class="pilot-label">AGENT</div>
+      <div class="pilot-value hybrid" id="pilot-mode">AUTONOMOUS COPILOT</div>
     </div>
     <div class="sim-section">
       <div class="sim-label">SIM</div>
-      <div class="sim-value" id="sim-speed">1x</div>
+      <div class="sim-value" id="sim-speed">--</div>
     </div>
   </div>
 
@@ -2042,11 +2042,17 @@ function updateHud(data, viewerPos) {
           let modeClass = '';
           if (data.pilot_mode) {
             mode = data.pilot_mode.toUpperCase();
+            const modeLower = data.pilot_mode.toLowerCase();
+            if (modeLower.includes('autonomous') || modeLower.includes('copilot') || modeLower.includes('hybrid')) {
+              modeClass = 'hybrid';
+            } else if (modeLower.includes('ai') || modeLower.includes('neural') || modeLower.includes('ppo')) {
+              modeClass = 'ai';
+            }
           } else if (data.phase) {
-            // Infer from phase: if phase contains "RESIDUAL" or model is loaded, it's hybrid
+            // Infer from phase name
             const phaseLower = (data.phase || '').toLowerCase();
             if (phaseLower.includes('residual') || phaseLower.includes('nn') || phaseLower.includes('ai')) {
-              mode = 'AI+EXPERT';
+              mode = 'AUTONOMOUS COPILOT';
               modeClass = 'hybrid';
             } else if (phaseLower.includes('ppo') || phaseLower.includes('neural')) {
               mode = 'AI';

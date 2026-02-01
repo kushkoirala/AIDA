@@ -180,10 +180,13 @@ def update_telemetry(state, action, phase_name, distance_to_dest, origin, earth_
     quat = euler_to_quaternion(phi, theta, psi)
     shared_state["quaternion"] = [float(q) for q in quat]
 
-    # Transform body-frame velocity to NED world-frame velocity
+    # Send body-frame velocity (u, v, w) in ft/s — matches the viewer label
+    # u = forward, v = right (sideslip), w = down
+    shared_state["velocity"] = [float(u * M_TO_FT), float(v * M_TO_FT), float(w * M_TO_FT)]
+
+    # Also send NED world-frame velocity for navigation displays
     vx_ned, vy_ned, vz_ned = body_to_ned_velocity(u, v, w, phi, theta, psi)
-    # Display as [North, East, Up] (ft/s) — negate vz_ned so positive = climb
-    shared_state["velocity"] = [float(vx_ned * M_TO_FT), float(vy_ned * M_TO_FT), float(-vz_ned * M_TO_FT)]
+    shared_state["velocity_ned"] = [float(vx_ned * M_TO_FT), float(vy_ned * M_TO_FT), float(-vz_ned * M_TO_FT)]
     shared_state["rates"] = [float(p), float(q), float(r)]
 
     shared_state["throttle"] = float(np.clip(action[0], 0.0, 1.0))
@@ -350,6 +353,8 @@ def setup_flight(origin_icao, dest_icao):
 def run_flight_loop(dt=0.02, sim_speed=2.0):
     """Main flight loop that supports dynamic restarts."""
     global flight_state
+    shared_state["sim_speed"] = float(sim_speed)
+    shared_state["pilot_mode"] = "Autonomous Copilot"
 
     # Start in hangar mode - wait for user to select a flight from the viewer
     origin_icao = None

@@ -1292,9 +1292,36 @@ class LLMCommandServer:
 
         return {"type": "error", "message": "Unknown message type"}
 
+    async def _push_override_to_sim(self, cmd):
+        """Push override directly to the sim's telemetry WebSocket (port 8765).
+
+        This bypasses the browser chatbot relay entirely, sending the
+        override command straight from the LLM server to the flight sim.
+        """
+        ws = self.controller._telemetry_ws
+        if ws is not None:
+            # Build the same override message format the sim expects
+            action_map = {"heading": "set_heading", "altitude": "set_altitude"}
+            override_msg = {"type": "override"}
+            if cmd.action in action_map:
+                override_msg["action"] = action_map[cmd.action]
+                override_msg["value"] = cmd.value
+            elif cmd.action == "land":
+                override_msg["action"] = "land"
+                override_msg["target"] = cmd.target
+            try:
+                await ws.send(json.dumps(override_msg))
+                print(f"[LLM Server] Override pushed directly to sim: {override_msg}")
+            except Exception as e:
+                print(f"[LLM Server] Direct push failed: {e}")
+
     async def _execute_and_respond(self, cmd, intent_info=None, confirmed=False):
         """Execute a command and generate the pilot response."""
         result = self.controller.execute_command(cmd)
+
+        # Immediately push override to sim (don't wait for browser relay)
+        if result.get("success") and cmd.action in ("heading", "altitude", "land"):
+            await self._push_override_to_sim(cmd)
 
         # Log intent observation for learning
         if INTENT_LEARNING_AVAILABLE and intent_info is not None:
@@ -1469,7 +1496,7 @@ class LLMCommandServer:
                         await client.send(message)
                     except:
                         pass
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.1)
 
     async def run(self):
         """Start the WebSocket server"""
