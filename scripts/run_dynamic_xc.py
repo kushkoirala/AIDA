@@ -35,6 +35,16 @@ from flight_dynamics import FlightSimulator, StateIndex
 from aida_sim.io.telemetry import telemetry_server, get_command
 from earth_model import EarthModel, curvature_altitude_correction, M_TO_NM
 
+# BIRL + CBF safety layer (Chapter 3 & 5 of thesis)
+try:
+    from llm.birl_inference import BIRLInference, extract_features
+    from llm.cbf_safety import FlightEnvelopeCBF
+    CBF_AVAILABLE = True
+    print("[AIDA] BIRL + Entropy-Modulated CBF loaded")
+except ImportError as e:
+    CBF_AVAILABLE = False
+    print(f"[AIDA] CBF not available: {e}")
+
 # Unit conversions
 M_TO_FT = 3.28084
 FT_TO_M = 0.3048
@@ -201,6 +211,12 @@ def update_telemetry(state, action, phase_name, distance_to_dest, origin, earth_
     shared_state["alpha_deg"] = float(np.rad2deg(alpha_rad))
     shared_state["beta_deg"] = float(np.rad2deg(beta_rad))
     shared_state["aoa_deg"] = float(np.rad2deg(alpha_rad))
+
+    # Compute lat/lon from NED position for navigation commands
+    if earth_model is not None:
+        lat, lon, _ = earth_model.ned_to_lla(float(x), float(y), float(z))
+        shared_state["lat"] = float(lat)
+        shared_state["lon"] = float(lon)
 
 
 def setup_flight(origin_icao, dest_icao):
@@ -395,6 +411,22 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
         print_interval = 10.0
         last_print_time = 0.0
 
+        # Initialize BIRL + CBF if available
+        birl_engine = None
+        cbf_layer = None
+        cbf_frame_count = 0
+        if CBF_AVAILABLE:
+            birl_engine = BIRLInference(n_features=4, n_samples=200, beta=5.0)
+            cbf_layer = FlightEnvelopeCBF(
+                min_altitude_ft=200.0,
+                max_altitude_ft=14000.0,
+                min_airspeed_kts=52.0,
+                max_airspeed_kts=155.0,
+                eta=0.3,
+                alpha_cbf=1.0,
+            )
+            print("[AIDA] CBF safety layer active")
+
         try:
             while sim_time < max_time and not flight_state["restart_requested"]:
                 # Check for commands
@@ -445,7 +477,53 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
                 state_for_controller[StateIndex.Y] = state[StateIndex.Y] - origin.y_ft * FT_TO_M
 
                 action = controller.compute_action(state_for_controller, sim_time)
-                dynamics.set_controls(action.reshape(1, -1))
+
+                # BIRL feature extraction + CBF safety filtering
+                if birl_engine is not None and cbf_layer is not None:
+                    target_state = {
+                        "altitude_ft": controller.get_target_altitude_ft(),
+                        "heading_deg": controller.get_target_heading_deg(),
+                        "airspeed_kts": shared_state.get("airspeed_kts", 110.0),
+                    }
+                    features = extract_features(
+                        state, action, controller.phase.name, target_state
+                    )
+                    birl_engine.add_observation(features)
+
+                    # MCMC update every 50 frames (~1 second at 50Hz)
+                    cbf_frame_count += 1
+                    if cbf_frame_count % 50 == 0:
+                        birl_engine.update_posterior()
+
+                    # CBF-QP: find minimum-deviation safe control
+                    entropy = birl_engine.get_entropy()
+                    cbf_result = cbf_layer.solve_safe_control(
+                        action, state, entropy, dt,
+                        phase=controller.phase.name,
+                    )
+                    safe_action = cbf_result.u_safe
+
+                    # Record metrics
+                    cbf_layer.metrics.record(sim_time, cbf_result)
+
+                    # Telemetry extension (cast numpy types to native Python for JSON)
+                    shared_state["cbf_active"] = bool(cbf_result.intervened)
+                    shared_state["cbf_entropy"] = float(round(entropy, 4))
+                    shared_state["cbf_interventions"] = int(cbf_layer.metrics.total_interventions)
+                    shared_state["cbf_barriers"] = {k: float(v) for k, v in cbf_result.barrier_values.items()}
+                    shared_state["birl_weights"] = birl_engine.get_posterior_mean().tolist()
+                    shared_state["birl_dominant"] = str(birl_engine.get_dominant_intent())
+
+                    if cbf_result.intervened and cbf_result.control_deviation > 0.05:
+                        print(f"  [CBF] Intervention at t={sim_time:.1f}s: "
+                              f"{cbf_result.active_barriers} "
+                              f"dev={cbf_result.control_deviation:.3f} "
+                              f"H={entropy:.3f}")
+
+                    dynamics.set_controls(safe_action.reshape(1, -1))
+                else:
+                    dynamics.set_controls(action.reshape(1, -1))
+
                 dynamics.step()
 
                 # Calculate distance to destination
@@ -497,6 +575,14 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
                         print("="*70)
                         print(f"  MISSION COMPLETE - LANDED AT {dest_icao}!")
                         print(f"  Final speed: {airspeed_kts:.1f} kts")
+                        if cbf_layer is not None:
+                            summary = cbf_layer.metrics.summary()
+                            birl_summary = birl_engine.get_reward_posterior_summary()
+                            print(f"  CBF interventions: {summary['total_interventions']}")
+                            print(f"  Avg control deviation: {summary['avg_control_deviation']:.4f}")
+                            print(f"  BIRL entropy: {birl_summary['entropy']:.3f}")
+                            print(f"  BIRL weights: {[f'{w:.3f}' for w in birl_summary['reward_weights']]}")
+                            print(f"  Dominant intent: {birl_summary['dominant_intent']}")
                         print("="*70)
                         print("\n  Waiting for new flight request from viewer...")
 

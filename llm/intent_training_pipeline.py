@@ -487,6 +487,7 @@ class IntentTrainingPipeline:
         checkpoint_dir: Optional[Path] = None,
         use_sim: bool = False,
         device: str = "cpu",
+        use_gpu: bool = False,
     ):
         self.parallel_workers = parallel_workers
         self.flights_per_worker = flights_per_worker
@@ -495,6 +496,7 @@ class IntentTrainingPipeline:
         self.checkpoint_dir = checkpoint_dir or DATA_DIR / "checkpoints"
         self.use_sim = use_sim and SIM_ENV_AVAILABLE
         self.device = device
+        self.use_gpu = use_gpu
 
         # Training state
         self.total_observations = 0
@@ -596,11 +598,15 @@ class IntentTrainingPipeline:
             print_learned_priors(priors)
 
     def _run_parallel_flights(self) -> List[IntentObservation]:
-        """Run flights in parallel using ProcessPoolExecutor or SimEnvFlightRunner."""
+        """Run flights in parallel using GPU batched, CPU ProcessPool, or scenario sim."""
 
         # Use sim environment if available and requested
         if self.use_sim and self.sim_runner is not None:
             num_flights = self.parallel_workers * self.flights_per_worker
+            # GPU-batched: all flights in single CUDA kernel
+            if self.use_gpu:
+                return self.sim_runner.run_gpu_batched_flights(num_flights)
+            # CPU parallel: ProcessPoolExecutor
             return self.sim_runner.run_parallel_flights(num_flights)
 
         # Fall back to simplified scenario-based simulation with multiprocessing
@@ -1093,6 +1099,199 @@ class SimEnvFlightRunner:
         print(f"    [SimRunner] Total: {len(all_observations)} observations from {num_flights} flights")
         return all_observations
 
+    def run_gpu_batched_flights(self, num_flights: int,
+                                substeps: int = 10) -> List[IntentObservation]:
+        """
+        Run flights using native CUDA kernel for physics + CPU controllers.
+
+        Architecture:
+          - Single CudaFlightSim(n_instances=N) on GPU (fused RK4 kernel)
+          - N GeneralizedXCControllers on CPU
+          - Per outer step: GPU runs `substeps` physics steps (fused),
+            then CPU updates N controllers once
+          - substeps=10 means controller runs at 2Hz (every 0.5s at dt=0.05)
+            instead of 20Hz, reducing Python overhead by 10x
+          - GPU physics: ~16ms for 1000 steps × 1000 instances (essentially free)
+        """
+        if not self.gpu_sim_available:
+            print("    [GPU] Flight dynamics not available, falling back to CPU")
+            return self.run_parallel_flights(num_flights)
+
+        try:
+            sys.path.insert(0, str(Path(__file__).parent.parent / "gpu-flight-dynamics" / "python"))
+            from cuda_flight_sim import CudaFlightSim
+        except ImportError as e:
+            print(f"    [GPU] Native CUDA sim not available ({e}), falling back to CPU")
+            return self.run_parallel_flights(num_flights)
+
+        all_observations = []
+        altitudes = [3500, 4500, 5500, 6500, 7500]
+
+        print(f"    [GPU] Running {num_flights} flights on native CUDA kernel "
+              f"(dt={self.sim_dt}, substeps={substeps}, {len(self.ROUTE_PAIRS)} routes)")
+
+        try:
+            # Create single GPU sim for all flights
+            sim = CudaFlightSim(n_instances=num_flights, dt=self.sim_dt)
+
+            # Create N controllers (CPU)
+            controllers = []
+            flight_ids = []
+            import io, contextlib
+            for i in range(num_flights):
+                origin, dest = random.choice(self.ROUTE_PAIRS)
+                cruise_alt = random.choice(altitudes)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    ctrl = self._create_controller(origin, dest, cruise_altitude_ft=cruise_alt)
+                controllers.append(ctrl)
+                flight_ids.append(f"gpu_{origin}_{dest}_{i}_{int(time.time())}")
+
+            # Reset all instances to runway start
+            init_state = np.zeros(12, dtype=np.float32)
+            init_state[0] = -400.0  # Start on runway
+            init_state[3] = 5.0     # Small forward velocity
+            sim.reset(init_state)
+
+            # Per-flight tracking
+            active = np.ones(num_flights, dtype=bool)
+            last_phases = [None] * num_flights
+            last_cmd_times = [0.0] * num_flights
+            cmd_intervals = [random.uniform(5.0, 15.0) for _ in range(num_flights)]
+            flight_observations = [[] for _ in range(num_flights)]
+
+            # Reset all inference engines (one per flight via separate sessions)
+            reset_inference_engine()
+
+            controls = np.zeros((num_flights, 7), dtype=np.float32)
+            max_steps = int(2700.0 / self.sim_dt)  # 45 min
+            # Outer loop steps = total / substeps
+            outer_steps = max_steps // substeps
+            outer_dt = substeps * self.sim_dt  # Time per outer step
+
+            start_time = time.time()
+            total_sim_steps = 0
+
+            for outer in range(outer_steps):
+                if not np.any(active):
+                    break
+
+                sim_time = outer * outer_dt
+
+                # Get all states from GPU (single transfer)
+                states = sim.get_states()  # [N, 12]
+
+                # Compute controls for each active flight (CPU)
+                for i in range(num_flights):
+                    if not active[i]:
+                        continue
+
+                    state = states[i]
+                    expert_action = controllers[i].compute_action(state, sim_time)
+                    phase = controllers[i].phase
+                    phase_name = phase.name
+                    controls[i, :] = expert_action[:7]
+
+                    # Generate intent observations at phase transitions or periodically
+                    should_command = False
+                    if phase_name != last_phases[i]:
+                        should_command = True
+                        last_phases[i] = phase_name
+                        cmd_intervals[i] = random.uniform(3.0, 10.0)
+                    elif sim_time - last_cmd_times[i] >= cmd_intervals[i]:
+                        should_command = True
+                        cmd_intervals[i] = random.uniform(5.0, 15.0)
+
+                    if should_command and phase_name in PHASE_COMMAND_TEMPLATES:
+                        templates = PHASE_COMMAND_TEMPLATES[phase_name]
+                        if templates:
+                            alt_m = -state[2]
+                            u, v, w = state[3], state[4], state[5]
+                            airspeed_ms = np.sqrt(u**2 + v**2 + w**2)
+                            telem = {
+                                "altitude": float(alt_m * self.M_TO_FT),
+                                "airspeed": float(airspeed_ms * self.MS_TO_KTS),
+                                "vertical_rate": float(-w * self.MS_TO_FPM),
+                                "heading": float(np.rad2deg(state[8]) % 360),
+                                "roll": float(np.rad2deg(state[6])),
+                                "pitch": float(np.rad2deg(state[7])),
+                            }
+                            intent_phase = XCPHASE_TO_INTENT.get(phase_name, "cruise")
+
+                            template = random.choice(templates)
+                            cmd_value = template["value_fn"](telem)
+
+                            result = bayesian_validate_intent(
+                                action=template["action"],
+                                value=cmd_value,
+                                target=None,
+                                telemetry=telem,
+                                phase=intent_phase,
+                                use_stateful=True,
+                            )
+
+                            if not result.get("validated", True):
+                                outcome = "anomaly_flagged"
+                            elif result.get("confidence", 1.0) < 0.3:
+                                outcome = "low_confidence"
+                            else:
+                                outcome = "executed"
+
+                            obs_entry = IntentObservation(
+                                timestamp=time.time(),
+                                phase=intent_phase,
+                                telemetry=telem,
+                                command={"action": template["action"],
+                                         "value": float(cmd_value), "target": None},
+                                validation={
+                                    "confidence": result.get("confidence"),
+                                    "validated": result.get("validated"),
+                                    "anomaly_score": result.get("bayesian", {}).get("anomaly_score"),
+                                    "sequence_coherence": result.get("temporal", {}).get("sequence_coherence"),
+                                },
+                                outcome=outcome,
+                                session_id=f"gpu_train_{int(time.time())}",
+                                flight_id=flight_ids[i],
+                            )
+                            flight_observations[i].append(obs_entry)
+                            last_cmd_times[i] = sim_time
+
+                    if phase_name == "LANDED":
+                        active[i] = False
+
+                # Set controls and run substeps on GPU (single set_controls + step_n)
+                sim.set_controls(controls)
+                sim.step_n(substeps)
+                total_sim_steps += substeps
+
+                # Progress reporting
+                if outer > 0 and total_sim_steps % 10000 < substeps:
+                    n_active = np.sum(active)
+                    n_obs = sum(len(o) for o in flight_observations)
+                    elapsed = time.time() - start_time
+                    print(f"    [GPU] Step {total_sim_steps}/{max_steps} | "
+                          f"{n_active}/{num_flights} active | "
+                          f"{n_obs} obs | {elapsed:.1f}s "
+                          f"({substeps} substeps/ctrl)")
+
+            # Collect all observations
+            for obs_list in flight_observations:
+                all_observations.extend(obs_list)
+
+            elapsed = time.time() - start_time
+            n_landed = num_flights - np.sum(active)
+            print(f"    [GPU] Done: {len(all_observations)} obs from "
+                  f"{n_landed}/{num_flights} completed flights in {elapsed:.1f}s")
+
+        except Exception as e:
+            print(f"    [GPU] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            if not all_observations:
+                print("    [GPU] Falling back to CPU parallel flights")
+                return self.run_parallel_flights(num_flights)
+
+        return all_observations
+
 
 def _run_sim_flight_worker(config: dict) -> List[dict]:
     """
@@ -1328,6 +1527,8 @@ Examples:
                         help="Clear existing observations before training")
     parser.add_argument("--validate", action="store_true",
                         help="Run validation test: default vs learned priors")
+    parser.add_argument("--gpu", action="store_true",
+                        help="Use native CUDA kernel for batched GPU training (requires libflightdynamics.so)")
 
     args = parser.parse_args()
 
@@ -1362,6 +1563,7 @@ Examples:
             use_sim=args.use_sim,
             ppo_model_path=args.ppo_model,
             device=args.device,
+            use_gpu=args.gpu,
         )
         return
 
@@ -1373,6 +1575,7 @@ Examples:
         target_observations=args.target,
         use_sim=args.use_sim,
         device=args.device,
+        use_gpu=args.gpu,
     )
     pipeline.run()
 
@@ -1385,6 +1588,7 @@ def run_iterative_training(
     use_sim: bool = False,
     ppo_model_path: str = None,
     device: str = "cpu",
+    use_gpu: bool = False,
 ):
     """
     Run iterative training: collect data -> train priors -> repeat.
@@ -1403,7 +1607,8 @@ def run_iterative_training(
     print(f"  Iterations: {iterations}")
     print(f"  Observations per iteration: {obs_per_iteration}")
     print(f"  Parallel workers: {parallel}")
-    print(f"  Use GPU sim: {use_sim}")
+    print(f"  Use sim: {use_sim}")
+    print(f"  GPU batched: {use_gpu}")
     print(f"  PPO model: {ppo_model_path or 'None'}")
     print("=" * 70)
 
@@ -1440,6 +1645,7 @@ def run_iterative_training(
             target_observations=obs_per_iteration,
             use_sim=use_sim,
             device=device,
+            use_gpu=use_gpu,
         )
         if use_sim and pipeline.sim_runner is not None and ppo_model_path:
             pipeline.sim_runner.ppo_model_path = ppo_model_path

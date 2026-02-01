@@ -57,12 +57,22 @@ class IntentObservation:
     session_id: Optional[str] = None
     flight_id: Optional[str] = None
 
+    # BIRL / CBF fields (Chapter 3 & 5 of thesis)
+    birl_features: Optional[list] = None       # 4-element feature vector [tracking, safety, comfort, effort]
+    birl_entropy: Optional[float] = None       # BIRL posterior entropy at time of observation
+    birl_weights: Optional[list] = None        # BIRL posterior mean weights
+    cbf_intervened: Optional[bool] = None      # Whether CBF modified the control at this timestep
+
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "IntentObservation":
-        return cls(**d)
+        # Filter to only known fields (backward compat with old observations)
+        import dataclasses
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        filtered = {k: v for k, v in d.items() if k in valid_fields}
+        return cls(**filtered)
 
 
 # =============================================================================

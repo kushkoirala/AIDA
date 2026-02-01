@@ -7,6 +7,20 @@ from collections import deque
 import numpy as np
 import websockets
 
+
+class NumpyEncoder(json.JSONEncoder):
+    """JSON encoder that handles numpy types."""
+    def default(self, obj):
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
 # Global command queue for receiving commands from viewer
 command_queue = deque(maxlen=100)
 
@@ -49,7 +63,7 @@ async def telemetry_server(
                 payload.setdefault("sim_time", time.monotonic() - start)
                 payload.setdefault("mode", "server")
                 try:
-                    await websocket.send(json.dumps(payload))
+                    await websocket.send(json.dumps(payload, cls=NumpyEncoder))
                 except websockets.ConnectionClosed:
                     break
                 await asyncio.sleep(interval)

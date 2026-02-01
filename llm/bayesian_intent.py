@@ -1173,6 +1173,22 @@ def bayesian_validate_intent(
             f"intent may be erratic"
         )
 
+    # BIRL integration: if a BIRL engine is attached, include reward posterior
+    # and modulate confidence by entropy (high entropy = less certain intent)
+    birl = getattr(inference, '_birl_engine', None)
+    if birl is not None:
+        birl_summary = birl.get_reward_posterior_summary()
+        result["birl"] = birl_summary
+        # Entropy-modulated confidence: penalize ambiguous intent
+        entropy = birl_summary["entropy"]
+        result["confidence"] *= (1.0 - 0.5 * entropy)
+        result["soft_scores"]["birl_entropy"] = entropy
+        result["soft_scores"]["birl_dominant_intent"] = birl_summary["dominant_intent"]
+        if entropy > 0.7:
+            result["issues"].append(
+                f"High BIRL entropy ({entropy:.2f}) - intent is ambiguous"
+            )
+
     return result
 
 

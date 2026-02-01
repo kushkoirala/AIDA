@@ -307,6 +307,7 @@ class GeneralizedXCController:
         self.override_heading = None
         self.override_altitude = None
         self.override_land_target = None
+        self._needs_recalculate = False
 
         # Control gains
         self.kp_pitch = 0.8
@@ -365,6 +366,7 @@ class GeneralizedXCController:
         self.override_heading = None
         self.override_altitude = None
         self.override_land_target = None
+        self._needs_recalculate = False
 
     def set_heading_override(self, heading_deg: float):
         """Set heading override from LLM command."""
@@ -379,12 +381,54 @@ class GeneralizedXCController:
         print(f"[Controller] Altitude override set: {altitude_ft} ft")
 
     def set_land_override(self, target: str = None):
-        """Set landing override - resume approach to target."""
+        """Set landing override - resume approach to target.
+
+        Clears heading override and flags for route recalculation on the
+        next compute_action() call, which has access to current position.
+        """
         self.override_active = True
         self.override_land_target = target or self.destination.icao
-        if self.phase in [XCPhase.CRUISE_TO_TP, XCPhase.TURN_TO_INTERCEPT]:
-            self.phase = XCPhase.TURN_TO_INTERCEPT
+        self.override_heading = None  # Clear heading diversion
+        self._needs_recalculate = True  # Will be consumed in compute_action
         print(f"[Controller] Landing override set: {self.override_land_target}")
+
+    def recalculate_approach(self, x_ft: float, y_ft: float):
+        """Recalculate approach geometry from current position.
+
+        Determines the correct flight phase based on the aircraft's
+        position relative to the turning point and threshold, so the
+        controller can properly re-acquire the approach after a diversion.
+        """
+        dist_to_tp = np.sqrt((x_ft - self.tp_x_ft)**2 +
+                             (y_ft - self.tp_y_ft)**2)
+        dist_to_threshold = np.sqrt((x_ft - self.threshold_x_ft)**2 +
+                                    (y_ft - self.threshold_y_ft)**2)
+
+        # Check if aircraft is roughly on the inbound side of the TP
+        # (i.e., between TP and threshold along the runway axis)
+        tp_to_threshold_x = self.threshold_x_ft - self.tp_x_ft
+        tp_to_threshold_y = self.threshold_y_ft - self.tp_y_ft
+        tp_to_aircraft_x = x_ft - self.tp_x_ft
+        tp_to_aircraft_y = y_ft - self.tp_y_ft
+        dot = (tp_to_aircraft_x * tp_to_threshold_x +
+               tp_to_aircraft_y * tp_to_threshold_y)
+        past_tp_toward_threshold = dot > 0
+
+        if dist_to_tp > self.tp_trigger_distance_ft and not past_tp_toward_threshold:
+            # Far from TP and not yet past it — cruise to TP first
+            self.phase = XCPhase.CRUISE_TO_TP
+            print(f"[Controller] Recalculated: CRUISE_TO_TP "
+                  f"({dist_to_tp / NM_TO_FT:.1f} nm to TP)")
+        elif dist_to_threshold > 3 * NM_TO_FT:
+            # Past TP or close to it, but far from threshold — turn to intercept
+            self.phase = XCPhase.TURN_TO_INTERCEPT
+            print(f"[Controller] Recalculated: TURN_TO_INTERCEPT "
+                  f"({dist_to_threshold / NM_TO_FT:.1f} nm to threshold)")
+        else:
+            # Close to threshold — go straight to final approach
+            self.phase = XCPhase.FINAL_APPROACH
+            print(f"[Controller] Recalculated: FINAL_APPROACH "
+                  f"({dist_to_threshold / NM_TO_FT:.1f} nm to threshold)")
 
     def get_phase_name(self) -> str:
         """Get current phase name."""
@@ -487,6 +531,11 @@ class GeneralizedXCController:
         psi = state[StateIndex.PSI]
         p = state[StateIndex.P]
         q = state[StateIndex.Q]
+
+        # Recalculate approach if flagged (after diversion + land command)
+        if self._needs_recalculate:
+            self._needs_recalculate = False
+            self.recalculate_approach(x_ft, y_ft)
 
         # Distances in ft
         dist_to_tp_ft = np.sqrt((x_ft - self.tp_x_ft)**2 + (y_ft - self.tp_y_ft)**2)

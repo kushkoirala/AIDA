@@ -542,7 +542,7 @@ Speak like a pilot - use standard phraseology when appropriate. Keep responses b
 
 
 class PilotResponder:
-    """Generates pilot-style responses"""
+    """Generates pilot-style responses with situational awareness"""
 
     def __init__(self, callsign: str = "AIDA-1"):
         self.callsign = callsign
@@ -605,6 +605,50 @@ class PilotResponder:
 
     def unknown_command(self) -> str:
         return "Say again? I didn't understand that command. Try 'heading 270', 'altitude 7000', or 'land at KHUT'."
+
+    def build_assessment(self, cmd, intent_info: dict, state: dict) -> str:
+        """Build a human-readable assessment of why a command is flagged."""
+        issues = []
+        action = cmd.action
+        value = cmd.value
+
+        current_hdg = state.get("heading", 0)
+        current_alt = state.get("altitude", 0)
+        dest = state.get("destination", "destination")
+        dist = state.get("distance", 0)
+        target_hdg = state.get("target_heading", current_hdg)
+
+        if action == "heading" and value is not None:
+            # Check if heading diverges from destination
+            diff_from_dest = abs(((value - target_hdg) + 180) % 360 - 180)
+            if diff_from_dest > 60:
+                issues.append(
+                    f"Heading {int(value):03d} diverges from {dest} "
+                    f"(direct heading {int(target_hdg):03d}, {dist:.1f} nm away)"
+                )
+            hdg_change = abs(((value - current_hdg) + 180) % 360 - 180)
+            if hdg_change > 90:
+                issues.append(f"Large heading change ({int(hdg_change)} degrees from current {int(current_hdg):03d})")
+
+        elif action == "altitude" and value is not None:
+            cruise_alt = state.get("cruise_altitude", 5500)
+            if value < 500:
+                issues.append(f"Altitude {int(value)} ft is dangerously low")
+            elif value < 1000:
+                issues.append(f"Altitude {int(value)} ft is below standard minimums")
+            if abs(value - cruise_alt) > 3000:
+                issues.append(
+                    f"Large altitude change from cruise ({int(cruise_alt):,} ft)"
+                )
+
+        elif action == "land":
+            phase = state.get("phase", "")
+            if phase in ("GROUND_ROLL", "ROTATION", "INITIAL_CLIMB", "CLIMB"):
+                issues.append("Landing command during climb phase")
+
+        if not issues:
+            return ""
+        return ". ".join(issues) + "."
 
 
 class FlightController:
@@ -704,6 +748,12 @@ class FlightController:
                             self.current_state["destination"] = data.get("destination")
                             self.current_state["lat"] = data.get("lat", 0.0)
                             self.current_state["lon"] = data.get("lon", 0.0)
+                            # BIRL + CBF telemetry from flight dynamics
+                            self.current_state["cbf_active"] = data.get("cbf_active", False)
+                            self.current_state["cbf_entropy"] = data.get("cbf_entropy", 1.0)
+                            self.current_state["cbf_interventions"] = data.get("cbf_interventions", 0)
+                            self.current_state["birl_weights"] = data.get("birl_weights")
+                            self.current_state["birl_dominant"] = data.get("birl_dominant")
                             # Flight plan context
                             self.current_state["cruise_altitude"] = data.get("cruise_altitude_ft", 0)
                             self.current_state["target_altitude"] = data.get("target_altitude_ft", 0)
@@ -756,6 +806,7 @@ class FlightController:
 
         elif cmd.action == "land":
             self.override_land_target = cmd.target or "KHUT"
+            self.override_heading = None  # Clear heading diversion for approach
             self.override_active = True
             result["success"] = True
             result["target"] = self.override_land_target
@@ -1022,6 +1073,7 @@ class LLMCommandServer:
         self.responder = PilotResponder()
         self.controller = FlightController()
         self.clients = set()
+        self.pending_command = None  # Held command awaiting confirmation
 
         # Initialize intent learning (start logging session, apply learned priors)
         if INTENT_LEARNING_AVAILABLE:
@@ -1066,6 +1118,17 @@ class LLMCommandServer:
         if msg_type == "command":
             text = data.get("text", "")
             print(f"[LLM Server] Command received: '{text}'")
+
+            # Check if this is a confirmation of a pending command
+            text_lower = text.strip().lower()
+            if text_lower in ("confirm", "proceed", "affirm", "yes", "do it", "execute") and self.pending_command is not None:
+                cmd = self.pending_command
+                self.pending_command = None
+                print(f"[LLM Server] Confirmed pending: action={cmd.action}, value={cmd.value}")
+                return await self._execute_and_respond(cmd, intent_info=None, confirmed=True)
+
+            # New command — clear any pending
+            self.pending_command = None
 
             # Parse the command with flight context
             cmd = self.parser.parse(text, flight_context=self.controller.current_state)
@@ -1125,12 +1188,31 @@ class LLMCommandServer:
                             "bayesian": bayesian_result["bayesian"],  # Credible intervals, anomaly
                             "issues": bayesian_result["issues"]
                         }
+                        # Include BIRL data from flight dynamics telemetry
+                        # (BIRL engine runs in flight dynamics process, not here)
+                        birl_weights = self.controller.current_state.get("birl_weights")
+                        cbf_entropy = self.controller.current_state.get("cbf_entropy", 1.0)
+                        if birl_weights is not None:
+                            intent_info["birl"] = {
+                                "entropy": cbf_entropy,
+                                "weights": birl_weights,
+                                "dominant_intent": self.controller.current_state.get("birl_dominant", "unknown"),
+                                "cbf_active": self.controller.current_state.get("cbf_active", False),
+                                "cbf_interventions": self.controller.current_state.get("cbf_interventions", 0),
+                            }
+                            # Modulate confidence by BIRL entropy
+                            intent_info["confidence"] *= (1.0 - 0.5 * cbf_entropy)
+                        elif "birl" in bayesian_result:
+                            intent_info["birl"] = bayesian_result["birl"]
                         # Log with temporal info
                         trend = bayesian_result["temporal"].get("trend", "stable")
                         coherence = bayesian_result["temporal"].get("sequence_coherence", 1.0)
+                        birl_str = ""
+                        if "birl" in intent_info:
+                            birl_str = f", H={intent_info['birl']['entropy']:.2f}"
                         print(f"[AIDA] Bayesian intent: valid={intent_info['validated']}, "
                               f"confidence={intent_info['confidence']:.2f}, "
-                              f"coherence={coherence:.2f}, trend={trend}")
+                              f"coherence={coherence:.2f}, trend={trend}{birl_str}")
 
                     # Fallback to heuristic validation
                     elif INTENT_VALIDATION_AVAILABLE:
@@ -1156,159 +1238,51 @@ class LLMCommandServer:
                     import traceback
                     traceback.print_exc()
 
-            # Execute the command
-            result = self.controller.execute_command(cmd)
+            # Decide: execute immediately or hold for confirmation
+            # Advisory hold for control commands with low confidence
+            ADVISORY_THRESHOLD = 0.3
+            needs_advisory = (
+                intent_info is not None
+                and cmd.action in ("heading", "altitude", "land")
+                and intent_info.get("confidence", 1.0) < ADVISORY_THRESHOLD
+            )
 
-            # Log intent observation for learning (if available)
-            if INTENT_LEARNING_AVAILABLE and intent_info is not None:
-                try:
-                    # Determine outcome based on validation
-                    if not intent_info.get("validated", True):
-                        outcome = "anomaly_flagged"
-                    elif intent_info.get("confidence", 1.0) < 0.3:
-                        outcome = "low_confidence"
-                    else:
-                        outcome = "executed"
-
-                    log_intent_observation(
-                        command={"action": cmd.action, "value": cmd.value, "target": cmd.target},
-                        telemetry=self.controller.current_state,
-                        phase=phase_str if 'phase_str' in dir() else "cruise",
-                        validation_result=intent_info,
-                        outcome=outcome,
-                    )
-                except Exception as e:
-                    print(f"[LLM Server] Intent logging error: {e}")
-
-            # Generate pilot response
-            if cmd.action == "heading":
-                message = self.responder.acknowledge_heading(
-                    cmd.value,
-                    self.controller.current_state.get("heading")
+            if needs_advisory:
+                # Build human-readable assessment
+                assessment = self.responder.build_assessment(
+                    cmd, intent_info, self.controller.current_state
                 )
-            elif cmd.action == "altitude":
-                message = self.responder.acknowledge_altitude(
-                    cmd.value,
-                    self.controller.current_state.get("altitude")
-                )
-            elif cmd.action == "land":
-                message = self.responder.acknowledge_land(cmd.target or "KHUT")
-            elif cmd.action == "status":
-                message = self.responder.report_status(result.get("state", {}))
-            elif cmd.action == "list_airports":
-                airports = result.get("airports", {})
-                apt_list = ", ".join([f"{code} ({info['name']})" for code, info in airports.items()])
-                message = f"Available airports: {apt_list}"
-            elif cmd.action == "distance":
-                if result.get("success"):
-                    dist = result.get("distance_nm", 0)
-                    hdg = result.get("heading_to", 0)
-                    target = result.get("target", "")
-                    name = result.get("airport_name", "")
-                    message = f"{target} ({name}) is {dist:.1f} nm away on heading {hdg:03d}°."
-                else:
-                    message = result.get("message", "Unable to calculate distance.")
-            elif cmd.action == "airport_info":
-                if result.get("success"):
-                    apt = result.get("airport", {})
-                    message = (f"{apt['code']} - {apt['name']}: "
-                              f"Elevation {apt['elevation']} ft, "
-                              f"Coordinates {apt['lat']:.4f}°N, {abs(apt['lon']):.4f}°W")
-                else:
-                    message = result.get("message", "Airport not found.")
-            elif cmd.action == "conversation":
-                # Use the LLM's natural language response
-                message = result.get("response", "I'm not sure how to respond to that.")
-            elif cmd.action == "nearest_airport":
-                if result.get("success"):
-                    nearest = result.get("nearest", {})
-                    all_apts = result.get("all_airports", [])
-                    message = (f"Nearest airport: {nearest['code']} ({nearest['name']}) - "
-                              f"{nearest['distance_nm']:.1f} nm on heading {nearest['heading_to']:03d}°, "
-                              f"elevation {nearest['elevation']} ft.")
-                    if len(all_apts) > 1:
-                        others = [f"{a['code']} ({a['distance_nm']:.1f} nm)" for a in all_apts[1:3]]
-                        message += f" Also nearby: {', '.join(others)}."
-                else:
-                    message = result.get("message", "Unable to determine nearest airport.")
-            elif cmd.action == "time_to_dest":
-                if result.get("success"):
-                    dist = result.get("distance_nm", 0)
-                    gs = result.get("groundspeed_kts", 0)
-                    time_min = result.get("time_minutes", 0)
-                    dest = self.controller.current_state.get("destination", "destination")
-                    if time_min >= 60:
-                        hours = int(time_min // 60)
-                        mins = int(time_min % 60)
-                        time_str = f"{hours} hour{'s' if hours > 1 else ''} {mins} minutes"
-                    else:
-                        time_str = f"{time_min} minutes"
-                    message = (f"Distance to {dest}: {dist:.1f} nm. "
-                              f"At current groundspeed of {gs} knots, ETA is {time_str}.")
-                else:
-                    message = result.get("message", "Unable to calculate time to destination.")
-            elif cmd.action == "top_of_descent":
-                if result.get("success"):
-                    status = result.get("status", "")
-                    if status == "should_descend":
-                        message = ("You're past the top of descent point. "
-                                  f"Begin descent now to reach pattern altitude of {result.get('pattern_altitude', 0):,} ft.")
-                    elif status == "at_or_below_pattern":
-                        message = result.get("message", "Already at or below pattern altitude.")
-                    else:
-                        tod_dist = result.get("distance_to_tod", 0)
-                        tod_time = result.get("time_to_tod_min", 0)
-                        alt_to_lose = result.get("altitude_to_lose", 0)
-                        pattern_alt = result.get("pattern_altitude", 0)
-                        message = (f"Top of descent in {tod_dist:.1f} nm ({tod_time:.0f} minutes). "
-                                  f"Descend {alt_to_lose:,} ft to pattern altitude {pattern_alt:,} ft.")
-                else:
-                    message = result.get("message", "Unable to calculate top of descent.")
-            elif cmd.action == "sitrep":
-                if result.get("success"):
-                    flight = result.get("flight", {})
-                    aircraft = result.get("aircraft", {})
-                    nearby = result.get("nearby_airports", [])
-                    eta = result.get("eta_minutes")
+                if not assessment:
+                    assessment = "This command deviates significantly from the expected flight profile."
 
-                    # Build comprehensive sitrep
-                    phase = flight.get("phase", "UNKNOWN")
-                    dist = flight.get("distance_remaining_nm", 0)
-                    dest = flight.get("destination", "destination")
-                    alt = aircraft.get("altitude_ft", 0)
-                    hdg = aircraft.get("heading_deg", 0)
-                    spd = aircraft.get("airspeed_kts", 0)
-                    cruise_alt = aircraft.get("cruise_altitude_ft", 0)
+                # Hold the command — don't execute yet
+                self.pending_command = cmd
+                intent_info["advisory"] = True
+                intent_info["assessment"] = assessment
 
-                    message = f"SITREP: {phase} phase, {dist:.1f} nm to {dest}. "
-                    message += f"Altitude {alt:,} ft (cruise {cruise_alt:,}), heading {hdg:03d}°, {spd} knots. "
+                # Log as held
+                if INTENT_LEARNING_AVAILABLE:
+                    try:
+                        log_intent_observation(
+                            command={"action": cmd.action, "value": cmd.value, "target": cmd.target},
+                            telemetry=self.controller.current_state,
+                            phase=phase_str if 'phase_str' in dir() else "cruise",
+                            validation_result=intent_info,
+                            outcome="advisory_hold",
+                        )
+                    except Exception:
+                        pass
 
-                    if eta:
-                        if eta >= 60:
-                            eta_str = f"{int(eta // 60)}h {int(eta % 60)}m"
-                        else:
-                            eta_str = f"{eta} minutes"
-                        message += f"ETA {eta_str}. "
+                print(f"[AIDA] Advisory hold: {cmd.action}={cmd.value}, confidence={intent_info['confidence']:.2f}")
+                return {
+                    "type": "response",
+                    "message": f"Advisory: {assessment} Say 'confirm' to proceed.",
+                    "action": None,
+                    "intent": intent_info,
+                }
 
-                    if nearby:
-                        nearest = nearby[0]
-                        message += f"Nearest: {nearest['code']} ({nearest['distance_nm']:.1f} nm, {nearest['heading']:03d}°)."
-                else:
-                    message = result.get("message", "Unable to generate situation report.")
-            else:
-                message = "Command acknowledged."
-
-            response = {
-                "type": "response",
-                "message": message,
-                "action": result
-            }
-
-            # Include intent validation info if available
-            if intent_info:
-                response["intent"] = intent_info
-
-            return response
+            # Clear to execute
+            return await self._execute_and_respond(cmd, intent_info)
 
         elif msg_type == "telemetry":
             # Update flight state from viewer
@@ -1317,6 +1291,172 @@ class LLMCommandServer:
             return {"type": "ack"}
 
         return {"type": "error", "message": "Unknown message type"}
+
+    async def _execute_and_respond(self, cmd, intent_info=None, confirmed=False):
+        """Execute a command and generate the pilot response."""
+        result = self.controller.execute_command(cmd)
+
+        # Log intent observation for learning
+        if INTENT_LEARNING_AVAILABLE and intent_info is not None:
+            try:
+                if not intent_info.get("validated", True):
+                    outcome = "anomaly_flagged"
+                elif intent_info.get("confidence", 1.0) < 0.3:
+                    outcome = "low_confidence"
+                else:
+                    outcome = "executed"
+                if confirmed:
+                    outcome = "confirmed_by_pilot"
+
+                log_intent_observation(
+                    command={"action": cmd.action, "value": cmd.value, "target": cmd.target},
+                    telemetry=self.controller.current_state,
+                    phase="cruise",
+                    validation_result=intent_info,
+                    outcome=outcome,
+                )
+            except Exception as e:
+                print(f"[LLM Server] Intent logging error: {e}")
+
+        # Generate pilot response
+        if confirmed:
+            message = "Roger, confirmed. "
+        else:
+            message = ""
+
+        if cmd.action == "heading":
+            message += self.responder.acknowledge_heading(
+                cmd.value,
+                self.controller.current_state.get("heading")
+            )
+        elif cmd.action == "altitude":
+            message += self.responder.acknowledge_altitude(
+                cmd.value,
+                self.controller.current_state.get("altitude")
+            )
+        elif cmd.action == "land":
+            message += self.responder.acknowledge_land(cmd.target or "KHUT")
+        elif cmd.action == "status":
+            message = self.responder.report_status(result.get("state", {}))
+        elif cmd.action == "list_airports":
+            airports = result.get("airports", {})
+            apt_list = ", ".join([f"{code} ({info['name']})" for code, info in airports.items()])
+            message = f"Available airports: {apt_list}"
+        elif cmd.action == "distance":
+            if result.get("success"):
+                dist = result.get("distance_nm", 0)
+                hdg = result.get("heading_to", 0)
+                target = result.get("target", "")
+                name = result.get("airport_name", "")
+                message = f"{target} ({name}) is {dist:.1f} nm away on heading {hdg:03d}°."
+            else:
+                message = result.get("message", "Unable to calculate distance.")
+        elif cmd.action == "airport_info":
+            if result.get("success"):
+                apt = result.get("airport", {})
+                message = (f"{apt['code']} - {apt['name']}: "
+                          f"Elevation {apt['elevation']} ft, "
+                          f"Coordinates {apt['lat']:.4f}°N, {abs(apt['lon']):.4f}°W")
+            else:
+                message = result.get("message", "Airport not found.")
+        elif cmd.action == "conversation":
+            message = result.get("response", "I'm not sure how to respond to that.")
+        elif cmd.action == "nearest_airport":
+            if result.get("success"):
+                nearest = result.get("nearest", {})
+                all_apts = result.get("all_airports", [])
+                message = (f"Nearest airport: {nearest['code']} ({nearest['name']}) - "
+                          f"{nearest['distance_nm']:.1f} nm on heading {nearest['heading_to']:03d}°, "
+                          f"elevation {nearest['elevation']} ft.")
+                if len(all_apts) > 1:
+                    others = [f"{a['code']} ({a['distance_nm']:.1f} nm)" for a in all_apts[1:3]]
+                    message += f" Also nearby: {', '.join(others)}."
+            else:
+                message = result.get("message", "Unable to determine nearest airport.")
+        elif cmd.action == "time_to_dest":
+            if result.get("success"):
+                dist = result.get("distance_nm", 0)
+                gs = result.get("groundspeed_kts", 0)
+                time_min = result.get("time_minutes", 0)
+                dest = self.controller.current_state.get("destination", "destination")
+                if time_min >= 60:
+                    hours = int(time_min // 60)
+                    mins = int(time_min % 60)
+                    time_str = f"{hours} hour{'s' if hours > 1 else ''} {mins} minutes"
+                else:
+                    time_str = f"{time_min} minutes"
+                message = (f"Distance to {dest}: {dist:.1f} nm. "
+                          f"At current groundspeed of {gs} knots, ETA is {time_str}.")
+            else:
+                message = result.get("message", "Unable to calculate time to destination.")
+        elif cmd.action == "top_of_descent":
+            if result.get("success"):
+                status = result.get("status", "")
+                if status == "should_descend":
+                    message = ("You're past the top of descent point. "
+                              f"Begin descent now to reach pattern altitude of {result.get('pattern_altitude', 0):,} ft.")
+                elif status == "at_or_below_pattern":
+                    message = result.get("message", "Already at or below pattern altitude.")
+                else:
+                    tod_dist = result.get("distance_to_tod", 0)
+                    tod_time = result.get("time_to_tod_min", 0)
+                    alt_to_lose = result.get("altitude_to_lose", 0)
+                    pattern_alt = result.get("pattern_altitude", 0)
+                    message = (f"Top of descent in {tod_dist:.1f} nm ({tod_time:.0f} minutes). "
+                              f"Descend {alt_to_lose:,} ft to pattern altitude {pattern_alt:,} ft.")
+            else:
+                message = result.get("message", "Unable to calculate top of descent.")
+        elif cmd.action == "sitrep":
+            if result.get("success"):
+                flight = result.get("flight", {})
+                aircraft = result.get("aircraft", {})
+                nearby = result.get("nearby_airports", [])
+                eta = result.get("eta_minutes")
+
+                phase = flight.get("phase", "UNKNOWN")
+                dist = flight.get("distance_remaining_nm", 0)
+                dest = flight.get("destination", "destination")
+                alt = aircraft.get("altitude_ft", 0)
+                hdg = aircraft.get("heading_deg", 0)
+                spd = aircraft.get("airspeed_kts", 0)
+                cruise_alt = aircraft.get("cruise_altitude_ft", 0)
+
+                message = f"SITREP: {phase} phase, {dist:.1f} nm to {dest}. "
+                message += f"Altitude {alt:,} ft (cruise {cruise_alt:,}), heading {hdg:03d}°, {spd} knots. "
+
+                if eta:
+                    if eta >= 60:
+                        eta_str = f"{int(eta // 60)}h {int(eta % 60)}m"
+                    else:
+                        eta_str = f"{eta} minutes"
+                    message += f"ETA {eta_str}. "
+
+                if nearby:
+                    nearest = nearby[0]
+                    message += f"Nearest: {nearest['code']} ({nearest['distance_nm']:.1f} nm, {nearest['heading']:03d}°)."
+            else:
+                message = result.get("message", "Unable to generate situation report.")
+        else:
+            message = "Command acknowledged."
+
+        response = {
+            "type": "response",
+            "message": message,
+            "action": result
+        }
+
+        # Include intent validation info if available
+        if intent_info:
+            # Add assessment for non-advisory commands too
+            if "assessment" not in intent_info:
+                assessment = self.responder.build_assessment(
+                    cmd, intent_info, self.controller.current_state
+                )
+                if assessment:
+                    intent_info["assessment"] = assessment
+            response["intent"] = intent_info
+
+        return response
 
     async def broadcast_overrides(self):
         """Periodically broadcast override commands to connected telemetry clients"""
