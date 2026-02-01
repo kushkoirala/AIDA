@@ -190,11 +190,14 @@ def update_telemetry(state, action, phase_name, distance_to_dest, origin, earth_
     shared_state["rates"] = [float(p), float(q), float(r)]
 
     shared_state["throttle"] = float(np.clip(action[0], 0.0, 1.0))
-    shared_state["surfaces"] = [
-        float(np.clip(action[1], -1.0, 1.0)),
-        float(np.clip(action[2], -1.0, 1.0)),
-        float(np.clip(action[3], -1.0, 1.0))
-    ]
+    # Control surfaces with aviation sign conventions:
+    #   Aileron:  +ve = right wing down (right roll)  — matches internal convention
+    #   Elevator: +ve = nose up (stick back)           — NEGATE internal (internal: +ve = nose down)
+    #   Rudder:   +ve = nose right (right pedal)       — matches internal convention
+    da = float(np.clip(action[1], -1.0, 1.0))
+    de = float(np.clip(-action[2], -1.0, 1.0))  # negate: internal +ve=nose-down → display +ve=nose-up
+    dr = float(np.clip(action[3], -1.0, 1.0))
+    shared_state["surfaces"] = [da, de, dr]
     shared_state["flaps"] = float(np.clip(action[4], 0.0, 1.0))
     shared_state["spoilers"] = float(np.clip(action[5], 0.0, 1.0))
     shared_state["brakes"] = float(np.clip(action[6], 0.0, 1.0)) if len(action) > 6 else 0.0
@@ -546,8 +549,10 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
                               f"H={entropy:.3f}")
 
                     dynamics.set_controls(safe_action.reshape(1, -1))
+                    applied_action = safe_action  # CBF-filtered action for telemetry
                 else:
                     dynamics.set_controls(action.reshape(1, -1))
+                    applied_action = action  # original controller action
 
                 dynamics.step()
 
@@ -559,7 +564,8 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
                     (state[StateIndex.Y] - dest_y_m)**2
                 )
 
-                update_telemetry(state, action, controller.phase.name, distance_to_dest, origin, earth)
+                # Show the actual applied controls (CBF-filtered if active)
+                update_telemetry(state, applied_action, controller.phase.name, distance_to_dest, origin, earth)
                 shared_state["sim_time"] = sim_time
 
                 # IMM update: feed current telemetry every frame
