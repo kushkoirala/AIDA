@@ -533,9 +533,13 @@ class GeneralizedXCController:
         q = state[StateIndex.Q]
 
         # Recalculate approach if flagged (after diversion + land command)
+        # Never recalculate once in terminal phases (on the ground)
         if self._needs_recalculate:
             self._needs_recalculate = False
-            self.recalculate_approach(x_ft, y_ft)
+            terminal_phases = {XCPhase.SHORT_FINAL, XCPhase.FLARE,
+                               XCPhase.ROLLOUT, XCPhase.LANDING, XCPhase.LANDED}
+            if self.phase not in terminal_phases:
+                self.recalculate_approach(x_ft, y_ft)
 
         # Distances in ft
         dist_to_tp_ft = np.sqrt((x_ft - self.tp_x_ft)**2 + (y_ft - self.tp_y_ft)**2)
@@ -572,6 +576,7 @@ class GeneralizedXCController:
             self.phase = XCPhase.LANDING
         elif self.phase == XCPhase.LANDING and airspeed_fps < 5.0 * KTS_TO_FPS:
             self.phase = XCPhase.LANDED
+            self.clear_overrides()  # Prevent re-triggering after landing
 
         # Control logic by phase
         if self.phase == XCPhase.GROUND_ROLL:
