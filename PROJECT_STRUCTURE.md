@@ -268,33 +268,22 @@ Browser-based Three.js visualization:
 
 ## Data Pipeline
 
-```
-┌───────────────────────────┐
-│  GPU Flight Simulator     │     ┌─────────────────────┐
-│  (CUDA, 577M steps/s)    │────▶│  BC Datasets (NPZ)  │
-└───────────────────────────┘     │  Expert trajectories │
-                                  └──────────┬──────────┘
-                                             │
-                                             ▼
-┌───────────────────────────┐     ┌─────────────────────┐
-│  PPO / Residual RL        │◄───▶│  AIDA RL Env        │
-│  (SB3, curriculum)        │     │  (Gymnasium)        │
-└──────────┬────────────────┘     └─────────────────────┘
-           │
-           ▼
-┌───────────────────────────┐     ┌─────────────────────┐
-│  Trained Policy (ONNX)    │────▶│  run_dynamic_xc.py  │
-│  + XC Controller (FSM)    │     │  Live simulation    │
-└───────────────────────────┘     └──────────┬──────────┘
-                                             │
-                              ┌──────────────┼──────────────┐
-                              ▼              ▼              ▼
-                    ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-                    │  3D Viewer   │ │  LLM Copilot │ │  Bayesian    │
-                    │  (Three.js)  │ │  (Llama 8B)  │ │  Intent +    │
-                    │  port 8000   │ │  port 8766   │ │  IMM + BIRL  │
-                    └──────────────┘ └──────────────┘ │  + CBF       │
-                                                      └──────────────┘
+```mermaid
+graph TD
+    GPU["GPU Flight Simulator\n(CUDA, 577M steps/s)"] --> BC["BC Datasets (NPZ)\nExpert trajectories"]
+    BC --> RL["PPO / Residual RL\n(SB3, curriculum)"]
+    ENV["AIDA RL Env\n(Gymnasium)"] <--> RL
+    RL --> Policy["Trained Policy (ONNX)\n+ XC Controller (FSM)"]
+    Policy --> Sim["run_dynamic_xc.py\nLive simulation"]
+    Sim --> Viewer["3D Viewer\n(Three.js)\nPort 8000"]
+    Sim --> LLM["LLM Copilot\n(Llama 8B)\nPort 8766"]
+    Sim --> Bayes["Bayesian Intent\n+ IMM + BIRL\n+ CBF"]
+
+    style GPU fill:#76b900,color:#fff
+    style Policy fill:#e67e22,color:#fff
+    style Sim fill:#3498db,color:#fff
+    style LLM fill:#9b59b6,color:#fff
+    style Bayes fill:#e74c3c,color:#fff
 ```
 
 ## Telemetry Protocol

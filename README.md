@@ -119,37 +119,48 @@ Open `http://localhost:8000` in your browser. Select an aircraft in the 3D hanga
 
 AIDA operates as a multi-layer autonomous copilot system with three real-time WebSocket connections:
 
-```
-                          ┌─────────────────────────────────────────────────┐
-                          │              AIDA System Architecture            │
-                          └─────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Viewer["3D Viewer (Port 8000)"]
+        V1[WebGL/Three.js]
+        V2[Telemetry Dashboard]
+        V3[3D Hangar]
+    end
 
-  ┌──────────────┐         ┌──────────────────────────────────────┐
-  │   3D Viewer  │◀──8765──│        Flight Dynamics Server        │
-  │  (WebGL/JS)  │         │       run_dynamic_xc.py              │
-  │  Port 8000   │         │                                      │
-  │              │         │  ┌──────────┐    ┌───────────────┐   │
-  │  Telemetry   │         │  │ 6-DOF    │    │  XC Controller│   │
-  │  Dashboard   │         │  │ RK4 Sim  │───▶│  17-Phase FSM │   │
-  │  3D Hangar   │         │  │ (GPU)    │    │  + PID Loops  │   │
-  │              │         │  └──────────┘    └───────┬───────┘   │
-  └──────┬───────┘         │                          │           │
-         │                 │  ┌──────────┐    ┌───────▼───────┐   │
-         │                 │  │   BIRL   │    │     CBF       │   │
-  ┌──────▼───────┐         │  │  (MCMC)  │───▶│ Safety Filter │   │
-  │   Chatbot    │         │  └──────────┘    └───────────────┘   │
-  │   (JS UI)    │         │                                      │
-  │              │         │  ┌──────────┐    ┌───────────────┐   │
-  └──────┬───────┘         │  │   IMM    │    │   Bayesian    │   │
-         │                 │  │ Estimator│───▶│   Intent      │   │
-  ┌──────▼───────┐         │  └──────────┘    └───────────────┘   │
-  │  LLM Server  │──8765──▶│                                      │
-  │  xLAM-2-8B   │  direct │  Override ──▶ Controller ──▶ Sim    │
-  │  (GPU CUDA)  │  push   │                                      │
-  │  Port 8766   │         └──────────────────────────────────────┘
-  └──────────────┘
+    subgraph Chatbot["Chatbot UI"]
+        C1[Natural Language Input]
+        C2[Intent Display]
+    end
 
-  Ports: 8000 (HTTP viewer), 8765 (telemetry WS), 8766 (LLM command WS)
+    subgraph LLM["LLM Server (Port 8766)"]
+        L1[xLAM-2-8B]
+        L2[Function Calling]
+        L3[GPU CUDA Inference]
+    end
+
+    subgraph FlightServer["Flight Dynamics Server — run_dynamic_xc.py"]
+        subgraph Dynamics["Simulation"]
+            D1[6-DOF RK4 Sim]
+        end
+        subgraph Controller["Control"]
+            D2[XC Controller\n17-Phase FSM\n+ PID Loops]
+        end
+        subgraph Safety["Safety Layer"]
+            D3[BIRL\nMCMC] --> D4[CBF\nSafety Filter]
+        end
+        subgraph Inference["Intent Estimation"]
+            D5[IMM\nEstimator] --> D6[Bayesian\nIntent]
+        end
+
+        D1 --> D2
+        D2 --> D4
+        D4 --> D1
+    end
+
+    Viewer <-- "WS 8765\nTelemetry" --> FlightServer
+    Chatbot --> LLM
+    LLM -- "WS 8765\nDirect Override Push" --> FlightServer
+    LLM --> Chatbot
 ```
 
 ### Component Overview
@@ -209,14 +220,27 @@ AIDA uses **Llama-xLAM-2-8B-fc-r** (Q4_K_M quantization, 4.9 GB), a function-cal
 
 The LLM server pushes overrides **directly** to the sim via the telemetry WebSocket (port 8765), bypassing the browser relay for minimal latency:
 
-```
-User types command
-  → LLM parses (xLAM function call)
-  → Bayesian intent validation
-  → If confidence ≥ 0.3: execute immediately
-  → If confidence < 0.3: advisory hold → wait for "confirm"
-  → _push_override_to_sim() sends directly to port 8765
-  → Sim picks up on next frame (20ms)
+```mermaid
+sequenceDiagram
+    participant Pilot
+    participant LLM as LLM Server<br/>(xLAM-2-8B)
+    participant Bayes as Bayesian<br/>Validator
+    participant Sim as Flight Sim<br/>(Port 8765)
+
+    Pilot->>LLM: Natural language command
+    LLM->>LLM: Parse via function calling
+    LLM->>Bayes: Validate intent
+    alt confidence ≥ 0.3
+        Bayes-->>LLM: CLEARED
+        LLM->>Sim: _push_override_to_sim()
+        Sim-->>Sim: Applied next frame (20ms)
+    else confidence < 0.3
+        Bayes-->>LLM: ADVISORY HOLD
+        LLM-->>Pilot: Request confirmation
+        Pilot->>LLM: "confirm"
+        LLM->>Sim: _push_override_to_sim()
+    end
+    LLM-->>Pilot: Response with validation details
 ```
 
 ### Flight Context
@@ -233,40 +257,18 @@ The Bayesian intent inference engine validates every flight command against **le
 
 ### Architecture
 
-```
-                     ┌─────────────────────┐
-  Command ──────────▶│  Phase Prior Lookup  │
-  (heading/alt/land) │  (17 phases)         │
-                     └──────────┬──────────┘
-                                │
-                     ┌──────────▼──────────┐
-                     │  Von Mises Heading   │  κ = learned concentration
-                     │  Likelihood          │  per phase (e.g., cruise κ=8.2)
-                     └──────────┬──────────┘
-                                │
-                     ┌──────────▼──────────┐
-                     │  Gaussian Altitude   │  μ, σ = learned per phase
-                     │  Likelihood          │  (e.g., cruise μ=5500, σ=120)
-                     └──────────┬──────────┘
-                                │
-                     ┌──────────▼──────────┐
-                     │  Sequence Analysis   │  Multi-step coherence
-                     │  + Anomaly Scoring   │  tracking
-                     └──────────┬──────────┘
-                                │
-                     ┌──────────▼──────────┐
-                     │  IMM Confidence      │  max(single, imm_conf)
-                     │  Blending            │
-                     └──────────┬──────────┘
-                                │
-                     ┌──────────▼──────────┐
-                     │  BIRL Entropy        │  confidence *= (1 - 0.5*H)
-                     │  Modulation          │
-                     └──────────┬──────────┘
-                                │
-                         confidence ∈ [0, 1]
-                         validated: bool
-                         issues: list
+```mermaid
+graph TD
+    A["Command\n(heading / altitude / land)"] --> B["Phase Prior Lookup\n(17 phases)"]
+    B --> C["Von Mises Heading Likelihood\nκ = learned concentration\n(e.g., cruise κ = 8.2)"]
+    C --> D["Gaussian Altitude Likelihood\nμ, σ = learned per phase\n(e.g., cruise μ=5500, σ=120)"]
+    D --> E["Sequence Analysis\n+ Anomaly Scoring"]
+    E --> F["IMM Confidence Blending\nmax(single, imm_conf)"]
+    F --> G["BIRL Entropy Modulation\nconfidence *= (1 − 0.5 × H)"]
+    G --> H["confidence ∈ 0, 1\nvalidated: bool\nissues: list"]
+
+    style A fill:#4a90d9,color:#fff
+    style H fill:#2ecc71,color:#fff
 ```
 
 ### Learned Priors
@@ -431,6 +433,28 @@ A 17-phase Finite State Machine (FSM) controller with PID loops handles the comp
 
 ### 17 Flight Phases
 
+```mermaid
+graph LR
+    subgraph Takeoff
+        GR[GROUND_ROLL] --> ROT[ROTATION] --> IC[INITIAL_CLIMB]
+    end
+    subgraph Departure
+        IC --> CW_T[CROSSWIND\nTURN] --> CW[CROSSWIND] --> DW_T[DOWNWIND\nTURN] --> DEP[DEPARTURE]
+    end
+    subgraph EnRoute
+        DEP --> ER[EN_ROUTE] --> ARR[ARRIVAL]
+    end
+    subgraph Approach
+        ARR --> PE[PATTERN\nENTRY] --> DW[DOWNWIND] --> BT[BASE\nTURN] --> BASE --> FT[FINAL\nTURN]
+    end
+    subgraph Landing
+        FT --> FA[FINAL\nAPPROACH] --> SF[SHORT\nFINAL] --> FL[FLARE] --> RO[ROLLOUT] --> LDG[LANDING] --> LANDED
+    end
+
+    style GR fill:#e67e22,color:#fff
+    style LANDED fill:#2ecc71,color:#fff
+```
+
 | Phase | Description | Key Control |
 |-------|-------------|-------------|
 | GROUND_ROLL | Accelerate on runway | Full throttle, rudder steering |
@@ -518,9 +542,16 @@ Spherical Earth model with curvature corrections for navigation:
 
 ### Training Pipeline
 
-```
-Expert Demos ──▶ Behavior Cloning ──▶ Residual PPO ──▶ Evaluation
-(48+ flights)    (optional warm-start)  (fine-tuning)   (batch runs)
+```mermaid
+graph LR
+    A["Expert Demos\n(48+ flights)"] --> B["Behavior Cloning\n(optional warm-start)"]
+    B --> C["Residual PPO\n(fine-tuning)"]
+    C --> D["Evaluation\n(batch runs)"]
+
+    style A fill:#3498db,color:#fff
+    style B fill:#9b59b6,color:#fff
+    style C fill:#e67e22,color:#fff
+    style D fill:#2ecc71,color:#fff
 ```
 
 ### Residual RL Architecture
