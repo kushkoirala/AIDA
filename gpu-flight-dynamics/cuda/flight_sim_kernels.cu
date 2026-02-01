@@ -134,43 +134,50 @@ __device__ void compute_aerodynamics(
     float da = control[FD_AILERON];
     float de = control[FD_ELEVATOR];
     float dr = control[FD_RUDDER];
-    
+    float flap = clampf(control[FD_FLAP], 0.0f, 1.0f);
+    float spoiler = clampf(control[FD_SPOILER], 0.0f, 1.0f);
+
     // Airspeed and angles
     float alpha, beta;
     float V = compute_aero_angles(u, v, w, &alpha, &beta);
-    
+
     // Dynamic pressure
     float qbar = 0.5f * rho * V * V;
-    
+
     float S = params->geom.S;
     float b = params->geom.b;
     float c = params->geom.c;
-    
+
     // Non-dimensional rates
     float phat = p * b / (2.0f * V);
     float qhat = q * c / (2.0f * V);
     float rhat = r * b / (2.0f * V);
-    
-    // Lift coefficient
-    float CL = params->longi.CL0 
+
+    // Lift coefficient (with flap and spoiler effects)
+    float CL = params->longi.CL0
              + params->longi.CLa * alpha
              + params->longi.CLq * qhat
-             + params->longi.CLde * de;
-    
+             + params->longi.CLde * de
+             + params->longi.dCL_flap * flap
+             + params->longi.dCL_spoiler * spoiler;
+
     if (enable_stall) {
         CL = clampf(CL, params->longi.CLmin, params->longi.CLmax);
     }
-    
-    // Drag coefficient
-    float CD = params->longi.CD0 
+
+    // Drag coefficient (with flap and spoiler effects)
+    float CD = params->longi.CD0
              + params->longi.K * CL * CL
-             + params->longi.CDa * fabsf(alpha);
-    
-    // Pitch moment
+             + params->longi.CDa * fabsf(alpha)
+             + params->longi.dCD_flap * flap
+             + params->longi.dCD_spoiler * spoiler;
+
+    // Pitch moment (with flap effect)
     float Cm = params->longi.Cm0
              + params->longi.Cma * alpha
              + params->longi.Cmq * qhat
-             + params->longi.Cmde * de;
+             + params->longi.Cmde * de
+             + params->longi.dCm_flap * flap;
     
     // Side force
     float CY = params->latdi.CYb * beta
@@ -405,6 +412,22 @@ __global__ void integrate_euler_kernel(
     state[FD_PHI] = normalize_angle(state[FD_PHI]);
     state[FD_THETA] = normalize_angle(state[FD_THETA]);
     state[FD_PSI] = normalize_angle(state[FD_PSI]);
+
+    // Ground contact enforcement
+    float ground_z = 0.0f;
+    if (state[FD_Z] > ground_z) {
+        state[FD_Z] = ground_z;
+        if (state[FD_W] > 0.0f) state[FD_W] = 0.0f;
+        state[FD_PHI] *= 0.95f;
+        state[FD_P] *= 0.9f;
+        state[FD_Q] *= 0.9f;
+        float brake_input = clampf(control[FD_BRAKE], 0.0f, 1.0f);
+        float u_body = state[FD_U];
+        if (brake_input > 0.01f && u_body > 1.0f) {
+            float decel = brake_input * 3.0f * dt;
+            state[FD_U] = fmaxf(u_body - decel, 0.0f);
+        }
+    }
 }
 
 __global__ void integrate_rk4_kernel(
@@ -467,6 +490,27 @@ __global__ void integrate_rk4_kernel(
     state[FD_PHI] = normalize_angle(state[FD_PHI]);
     state[FD_THETA] = normalize_angle(state[FD_THETA]);
     state[FD_PSI] = normalize_angle(state[FD_PSI]);
+
+    // Ground contact enforcement
+    float ground_z = 0.0f;  // NED: z=0 is ground level
+    if (state[FD_Z] > ground_z) {
+        state[FD_Z] = ground_z;
+        // Kill downward velocity
+        if (state[FD_W] > 0.0f) state[FD_W] = 0.0f;
+        // Zero vertical position rate (kill z_dot via angular damping)
+        state[FD_PHI] *= 0.95f;   // Damp roll on ground
+        state[FD_P] *= 0.9f;
+        state[FD_Q] *= 0.9f;
+
+        // Wheel brakes: decelerate when on ground and moving forward
+        float brake_input = clampf(control[FD_BRAKE], 0.0f, 1.0f);
+        float u_body = state[FD_U];
+        if (brake_input > 0.01f && u_body > 1.0f) {
+            float max_brake_decel = 3.0f * dt;
+            float decel = brake_input * max_brake_decel;
+            state[FD_U] = fmaxf(u_body - decel, 0.0f);
+        }
+    }
 }
 
 /* ============================================================================
@@ -532,7 +576,16 @@ void fd_default_params(AircraftParams* params)
     params->longi.Cma = -0.613f;
     params->longi.Cmq = -12.4f;
     params->longi.Cmde = -1.122f;
-    
+
+    // Flap effects (matching Python FlightSimulator)
+    params->longi.dCL_flap = 0.5f;
+    params->longi.dCD_flap = 0.08f;
+    params->longi.dCm_flap = -0.12f;
+
+    // Spoiler effects
+    params->longi.dCL_spoiler = -0.4f;
+    params->longi.dCD_spoiler = 0.10f;
+
     // Lateral
     params->latdi.CYb = -0.393f;
     params->latdi.CYp = -0.075f;

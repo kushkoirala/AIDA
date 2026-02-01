@@ -21,11 +21,14 @@
  *   [6-8]  Euler angles (phi, theta, psi) [rad]
  *   [9-11] Angular rates (p, q, r) in body frame [rad/s]
  *   
- * Control Vector [4]:
+ * Control Vector [7]:
  *   [0] Throttle (0 to 1)
  *   [1] Aileron (-1 to 1, positive = right wing down)
  *   [2] Elevator (-1 to 1, positive = nose up)
  *   [3] Rudder (-1 to 1, positive = nose right)
+ *   [4] Flap (0 to 1)
+ *   [5] Spoiler (0 to 1)
+ *   [6] Brake (0 to 1)
  */
 
 #ifndef FLIGHT_DYNAMICS_H
@@ -57,9 +60,9 @@ extern "C" {
 #define FD_PRESS_SL     101325.0f       // Sea level pressure [Pa]
 #define FD_LAPSE_RATE   0.0065f         // Temperature lapse rate [K/m]
 
-// State vector dimensions
+// Dimensions
 #define FD_STATE_DIM    12
-#define FD_CONTROL_DIM  4
+#define FD_CONTROL_DIM  7
 
 // State indices
 #define FD_X            0   // Position North [m]
@@ -80,6 +83,9 @@ extern "C" {
 #define FD_AILERON      1
 #define FD_ELEVATOR     2
 #define FD_RUDDER       3
+#define FD_FLAP         4   // Flap deflection (0 to 1)
+#define FD_SPOILER      5   // Spoiler deflection (0 to 1)
+#define FD_BRAKE        6   // Wheel brake (0 to 1)
 
 /* ============================================================================
  * DATA STRUCTURES
@@ -133,6 +139,15 @@ typedef struct {
     float Cma;          // Static longitudinal stability [1/rad]
     float Cmq;          // Pitch damping derivative
     float Cmde;         // Elevator effectiveness
+
+    // Flap effects (normalized 0-1)
+    float dCL_flap;     // CL increment at full flaps
+    float dCD_flap;     // CD increment at full flaps
+    float dCm_flap;     // Pitch moment at full flaps (nose-down)
+
+    // Spoiler effects (normalized 0-1)
+    float dCL_spoiler;  // CL reduction at full spoilers
+    float dCD_spoiler;  // CD increment at full spoilers
 } LongitudinalDerivatives;
 
 /**
