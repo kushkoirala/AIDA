@@ -1,0 +1,268 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aida.flight/schemas/flight-intent.json",
+  "title": "FlightIntent",
+  "description": "Structured intent format for LLM-guided flight autonomy",
+  "type": "object",
+  "required": ["mission_phase", "priority", "goals"],
+  "properties": {
+    "intent_id": {
+      "type": "string",
+      "description": "Unique identifier for this intent",
+      "pattern": "^[a-f0-9]{8}$"
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when intent was created"
+    },
+    "mission_phase": {
+      "type": "string",
+      "enum": ["startup", "taxi", "takeoff", "climb", "cruise", "descent", "approach", "landing", "go_around", "emergency", "landed"],
+      "description": "Current phase of flight mission"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["normal", "high", "emergency"],
+      "description": "Intent priority level"
+    },
+    "goals": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "description": "List of flight goals to achieve",
+      "items": {
+        "$ref": "#/$defs/goal"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "description": "Operational constraints for this intent",
+      "items": {
+        "$ref": "#/$defs/constraint"
+      }
+    },
+    "route": {
+      "$ref": "#/$defs/route",
+      "description": "Optional route specification"
+    },
+    "handover": {
+      "$ref": "#/$defs/handover",
+      "description": "Fallback instructions if intent cannot be executed"
+    },
+    "explanation": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Human-readable explanation of the intent"
+    }
+  },
+  "$defs": {
+    "waypoint": {
+      "type": "object",
+      "required": ["lat", "lon"],
+      "properties": {
+        "lat": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90,
+          "description": "Latitude in degrees"
+        },
+        "lon": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180,
+          "description": "Longitude in degrees"
+        },
+        "alt_ft": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50000,
+          "description": "Altitude in feet MSL"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Optional waypoint name"
+        }
+      }
+    },
+    "goal": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "reach_waypoint",
+            "hold_position",
+            "maintain_altitude",
+            "maintain_speed",
+            "maintain_heading",
+            "follow_route",
+            "land_at",
+            "divert_to",
+            "avoid_area",
+            "proceed_to",
+            "return_to_cruise",
+            "hold_pattern"
+          ],
+          "description": "Type of flight goal"
+        },
+        "target_waypoint": {
+          "$ref": "#/$defs/waypoint",
+          "description": "Target waypoint for spatial goals"
+        },
+        "target_airport": {
+          "type": "string",
+          "pattern": "^[A-Z0-9]{3,4}$",
+          "description": "ICAO airport code"
+        },
+        "target_altitude_ft": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50000,
+          "description": "Target altitude in feet"
+        },
+        "target_speed_kt": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 500,
+          "description": "Target speed in knots"
+        },
+        "target_heading_deg": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 360,
+          "description": "Target heading in degrees"
+        },
+        "target_time_utc": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Target time to reach goal"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "maintain_altitude" } }
+          },
+          "then": {
+            "required": ["target_altitude_ft"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "maintain_heading" } }
+          },
+          "then": {
+            "required": ["target_heading_deg"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "maintain_speed" } }
+          },
+          "then": {
+            "required": ["target_speed_kt"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "enum": ["land_at", "divert_to"] } }
+          },
+          "then": {
+            "required": ["target_airport"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "enum": ["reach_waypoint", "proceed_to"] } }
+          },
+          "then": {
+            "required": ["target_waypoint"]
+          }
+        }
+      ]
+    },
+    "constraint": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "max_bank_deg",
+            "max_pitch_deg",
+            "max_climb_rate_fpm",
+            "max_descent_rate_fpm",
+            "min_speed_kt",
+            "max_speed_kt",
+            "min_altitude_ft",
+            "max_altitude_ft",
+            "avoid_airspace",
+            "avoid_terrain",
+            "min_separation_nm",
+            "no_fly_zone"
+          ],
+          "description": "Type of constraint"
+        },
+        "value": {
+          "type": "number",
+          "description": "Numeric value for the constraint"
+        },
+        "airspace_id": {
+          "type": "string",
+          "description": "Airspace identifier for avoidance constraints"
+        },
+        "geometry": {
+          "$ref": "#/$defs/geo_polygon",
+          "description": "Geographic boundary for spatial constraints"
+        }
+      }
+    },
+    "geo_polygon": {
+      "type": "object",
+      "required": ["points"],
+      "properties": {
+        "points": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/waypoint"
+          },
+          "description": "Vertices of the polygon"
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "required": ["waypoints"],
+      "properties": {
+        "waypoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/waypoint"
+          },
+          "description": "Ordered list of waypoints"
+        }
+      }
+    },
+    "handover": {
+      "type": "object",
+      "required": ["fallback_mode"],
+      "properties": {
+        "fallback_mode": {
+          "type": "string",
+          "enum": ["autopilot", "human", "abort_mission", "hold_current"],
+          "description": "What to do if intent fails"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Reason for potential handover"
+        }
+      }
+    }
+  }
+}

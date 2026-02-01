@@ -1,0 +1,174 @@
+{
+  "timestamp": 1769910561.8051417,
+  "version": "1.0",
+  "priors": {
+    "ground": {
+      "heading_concentration": 100.0,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 931,
+      "altitude_std": 10.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 5.0,
+      "airspeed_std_source": "default",
+      "total_observations": 931
+    },
+    "takeoff": {
+      "heading_concentration": 20.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 288.43181800030396,
+      "altitude_std_source": "learned",
+      "altitude_sample_size": 678,
+      "airspeed_std": 10.0,
+      "airspeed_std_source": "default",
+      "total_observations": 678
+    },
+    "initial_climb": {
+      "heading_concentration": 99.14710393929067,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 766,
+      "altitude_std": 446.89778054160683,
+      "altitude_std_source": "learned",
+      "altitude_sample_size": 683,
+      "airspeed_std": 10.0,
+      "airspeed_std_source": "default",
+      "total_observations": 1449
+    },
+    "climb": {
+      "heading_concentration": 11.351759385120383,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 2636,
+      "altitude_std": 574.7812647053995,
+      "altitude_std_source": "learned",
+      "altitude_sample_size": 2599,
+      "airspeed_std": 15.0,
+      "airspeed_std_source": "default",
+      "total_observations": 5235
+    },
+    "cruise": {
+      "heading_concentration": 5.333709504699906,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 6714,
+      "altitude_std": 116.2525785937937,
+      "altitude_std_source": "learned",
+      "altitude_sample_size": 6739,
+      "airspeed_std": 10.0,
+      "airspeed_std_source": "default",
+      "total_observations": 13453
+    },
+    "approach": {
+      "heading_concentration": 5.485609890967256,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 5188,
+      "altitude_std": 172.40587443727748,
+      "altitude_std_source": "learned",
+      "altitude_sample_size": 3976,
+      "airspeed_std": 10.0,
+      "airspeed_std_source": "default",
+      "total_observations": 9164
+    },
+    "final": {
+      "heading_concentration": 100.0,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 2286,
+      "altitude_std": 130.43084050377692,
+      "altitude_std_source": "learned",
+      "altitude_sample_size": 2403,
+      "airspeed_std": 5.0,
+      "airspeed_std_source": "default",
+      "total_observations": 4689
+    },
+    "flare": {
+      "heading_concentration": 100.0,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 538,
+      "altitude_std": 20.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 3.0,
+      "airspeed_std_source": "default",
+      "total_observations": 538
+    },
+    "rollout": {
+      "heading_concentration": 100.0,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 667,
+      "altitude_std": 5.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 5.0,
+      "airspeed_std_source": "default",
+      "total_observations": 667
+    },
+    "landing": {
+      "heading_concentration": 100.0,
+      "heading_concentration_source": "learned",
+      "heading_sample_size": 486,
+      "altitude_std": 50.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 5.0,
+      "airspeed_std_source": "default",
+      "total_observations": 486
+    },
+    "descent": {
+      "heading_concentration": 8.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 400.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 15.0,
+      "airspeed_std_source": "default",
+      "total_observations": 0
+    },
+    "cruise_climb": {
+      "heading_concentration": 8.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 400.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 10.0,
+      "airspeed_std_source": "default",
+      "total_observations": 0
+    },
+    "enroute": {
+      "heading_concentration": 5.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 300.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 10.0,
+      "airspeed_std_source": "default",
+      "total_observations": 0
+    },
+    "descent_planning": {
+      "heading_concentration": 10.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 500.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 15.0,
+      "airspeed_std_source": "default",
+      "total_observations": 0
+    },
+    "pattern_entry": {
+      "heading_concentration": 12.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 200.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 10.0,
+      "airspeed_std_source": "default",
+      "total_observations": 0
+    },
+    "downwind": {
+      "heading_concentration": 20.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 150.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 8.0,
+      "airspeed_std_source": "default",
+      "total_observations": 0
+    },
+    "base": {
+      "heading_concentration": 25.0,
+      "heading_concentration_source": "default",
+      "altitude_std": 100.0,
+      "altitude_std_source": "default",
+      "airspeed_std": 8.0,
+      "airspeed_std_source": "default",
+      "total_observations": 0
+    }
+  }
+}

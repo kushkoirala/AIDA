@@ -1922,7 +1922,7 @@ function updateHud(data, viewerPos) {
           const h = -data.position[2];           // Altitude = -Z_down (meters)
           posEl.textContent = xN.toFixed(0) + ', ' + yE.toFixed(0) + ', ' + h.toFixed(0);
         }
-        // Body velocity: u (forward), v (right), w (down)
+        // World velocity: North (ft/s), East (ft/s), Up (ft/s)
         if (data.velocity) velEl.textContent = formatVec(data.velocity);
         // Angular rates: p (roll), q (pitch), r (yaw) in deg/s
         if (data.rates) ratesEl.textContent = formatVec(data.rates);
@@ -1957,7 +1957,7 @@ function updateHud(data, viewerPos) {
           const now = performance.now();
           const dt = (now - lastAltTime) / 1000 / 60;
           if (dt > 0) {
-            const vs = data.vertical_speed_fpm || ((data.altitude_ft - lastAltitude) / dt);
+            const vs = (typeof data.vertical_speed_fpm === 'number') ? data.vertical_speed_fpm : ((data.altitude_ft - lastAltitude) / dt);
             vsCenterValue.textContent = Math.round(vs);
             // Check altitude callouts during descent
             if (window.altitudeCalloutSystem) {

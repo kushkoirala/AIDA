@@ -71,8 +71,10 @@ class XCPhase(Enum):
     INTERCEPT_LEG = 7
     FINAL_APPROACH = 8
     SHORT_FINAL = 9
-    LANDING = 10
-    LANDED = 11
+    FLARE = 10
+    ROLLOUT = 11
+    LANDING = 12
+    LANDED = 13
 
 
 @dataclass
@@ -411,7 +413,7 @@ class GeneralizedXCController:
         if self.override_active and self.override_altitude is not None:
             return self.override_altitude
 
-        if self.phase in (XCPhase.CLIMB, XCPhase.CRUISE):
+        if self.phase in (XCPhase.CLIMB, XCPhase.CRUISE_TO_TP):
             return self.cruise_altitude_ft
         elif self.phase in (XCPhase.INTERCEPT_LEG, XCPhase.FINAL_APPROACH):
             # Glideslope - would need current position to calculate
@@ -514,8 +516,12 @@ class GeneralizedXCController:
         elif self.phase == XCPhase.FINAL_APPROACH and dist_to_threshold_ft <= self.short_final_distance_ft:
             self.phase = XCPhase.SHORT_FINAL
         elif self.phase == XCPhase.SHORT_FINAL and altitude_ft <= self.flare_altitude_ft:
+            self.phase = XCPhase.FLARE
+        elif self.phase == XCPhase.FLARE and altitude_ft <= self.touchdown_altitude_ft:
+            self.phase = XCPhase.ROLLOUT
+        elif self.phase == XCPhase.ROLLOUT and airspeed_fps < 30.0 * KTS_TO_FPS:
             self.phase = XCPhase.LANDING
-        elif self.phase == XCPhase.LANDING and altitude_ft <= self.touchdown_altitude_ft:
+        elif self.phase == XCPhase.LANDING and airspeed_fps < 5.0 * KTS_TO_FPS:
             self.phase = XCPhase.LANDED
 
         # Control logic by phase
@@ -715,7 +721,8 @@ class GeneralizedXCController:
                            self._pitch_control(pitch, theta, q),
                            0.0, 0.7, spoiler, 0.0], dtype=np.float32)
 
-        elif self.phase == XCPhase.LANDING:
+        elif self.phase == XCPhase.FLARE:
+            # Flare: pitch up, idle throttle, arrest descent rate
             pitch_adjust = -climb_rate_fps * 0.005
             pitch = self.pitch_flare + pitch_adjust
             return np.array([0.0,
@@ -723,7 +730,19 @@ class GeneralizedXCController:
                            self._pitch_control(pitch, theta, q),
                            0.0, 1.0, 0.0, 0.0], dtype=np.float32)
 
+        elif self.phase == XCPhase.ROLLOUT:
+            # Rollout: on the ground, braking, maintain runway heading
+            return np.array([0.0,
+                           self._heading_control(self.runway_heading, psi, phi, p),
+                           0.0,
+                           0.0, 0.0, 0.0, 0.8], dtype=np.float32)
+
+        elif self.phase == XCPhase.LANDING:
+            # Landing: slow taxi/stop
+            return np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+
         elif self.phase == XCPhase.LANDED:
+            # Fully stopped
             return np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
         return np.array([0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)

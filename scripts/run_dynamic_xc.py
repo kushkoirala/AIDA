@@ -100,6 +100,34 @@ def euler_to_quaternion(roll, pitch, yaw):
     return [w, x, y, z]
 
 
+def body_to_ned_velocity(u, v, w, phi, theta, psi):
+    """
+    Transform body-frame velocity (u, v, w) to NED world-frame velocity.
+
+    Body frame: u=forward, v=right, w=down
+    NED frame: X=North, Y=East, Z=Down
+
+    Uses rotation matrix from body to NED.
+    """
+    # Precompute trig functions
+    cphi = math.cos(phi)
+    sphi = math.sin(phi)
+    ctheta = math.cos(theta)
+    stheta = math.sin(theta)
+    cpsi = math.cos(psi)
+    spsi = math.sin(psi)
+
+    # Rotation matrix from body to NED (standard aerospace convention)
+    # First row: X_ned = ...
+    vx_ned = (ctheta * cpsi) * u + (sphi * stheta * cpsi - cphi * spsi) * v + (cphi * stheta * cpsi + sphi * spsi) * w
+    # Second row: Y_ned = ...
+    vy_ned = (ctheta * spsi) * u + (sphi * stheta * spsi + cphi * cpsi) * v + (cphi * stheta * spsi - sphi * cpsi) * w
+    # Third row: Z_ned = ...
+    vz_ned = (-stheta) * u + (sphi * ctheta) * v + (cphi * ctheta) * w
+
+    return vx_ned, vy_ned, vz_ned
+
+
 def update_telemetry(state, action, phase_name, distance_to_dest, origin, earth_model=None):
     x, y, z = state[StateIndex.X], state[StateIndex.Y], state[StateIndex.Z]
     u, v, w = state[StateIndex.U], state[StateIndex.V], state[StateIndex.W]
@@ -131,7 +159,11 @@ def update_telemetry(state, action, phase_name, distance_to_dest, origin, earth_
 
     quat = euler_to_quaternion(phi, theta, psi)
     shared_state["quaternion"] = [float(q) for q in quat]
-    shared_state["velocity"] = [float(u * M_TO_FT), float(v * M_TO_FT), float(w * M_TO_FT)]
+
+    # Transform body-frame velocity to NED world-frame velocity
+    vx_ned, vy_ned, vz_ned = body_to_ned_velocity(u, v, w, phi, theta, psi)
+    # Display as [North, East, Up] (ft/s) — negate vz_ned so positive = climb
+    shared_state["velocity"] = [float(vx_ned * M_TO_FT), float(vy_ned * M_TO_FT), float(-vz_ned * M_TO_FT)]
     shared_state["rates"] = [float(p), float(q), float(r)]
 
     shared_state["throttle"] = float(np.clip(action[0], 0.0, 1.0))
@@ -143,6 +175,10 @@ def update_telemetry(state, action, phase_name, distance_to_dest, origin, earth_
     shared_state["flaps"] = float(np.clip(action[4], 0.0, 1.0))
     shared_state["spoilers"] = float(np.clip(action[5], 0.0, 1.0))
     shared_state["brakes"] = float(np.clip(action[6], 0.0, 1.0)) if len(action) > 6 else 0.0
+
+    # Vertical speed: vz_ned is positive-down (NED), so negate for positive-up (climb)
+    vertical_speed_mps = -vz_ned
+    shared_state["vertical_speed_fpm"] = float(vertical_speed_mps * 196.85)
 
     shared_state["phase"] = phase_name
     shared_state["altitude_ft"] = float(altitude_ft)
@@ -289,18 +325,22 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
     """Main flight loop that supports dynamic restarts."""
     global flight_state
 
-    # Default flight
-    origin_icao = "KHUT"
-    dest_icao = "KAAO"
+    # Start in hangar mode - wait for user to select a flight from the viewer
+    origin_icao = None
+    dest_icao = None
 
     while True:
-        # Check if a new flight was requested
-        if flight_state["restart_requested"]:
-            new_origin = flight_state["new_origin"]
-            new_dest = flight_state["new_destination"]
-            flight_state["restart_requested"] = False
+        # Check if a new flight was requested or if we're starting fresh (hangar mode)
+        if origin_icao is None or dest_icao is None or flight_state["restart_requested"]:
+            if flight_state["restart_requested"]:
+                new_origin = flight_state["new_origin"]
+                new_dest = flight_state["new_destination"]
+                flight_state["restart_requested"] = False
+            else:
+                new_origin = None
+                new_dest = None
 
-            # If stop was requested (no new flight), wait for new flight selection
+            # If no flight specified, wait for selection from viewer (hangar mode)
             if new_origin is None or new_dest is None:
                 print("\n[HANGAR] Waiting for new flight selection from viewer...")
                 # Set shared state to hangar mode so viewer knows to show hangar

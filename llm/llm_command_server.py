@@ -24,8 +24,82 @@ from typing import Optional, Dict, Any
 import websockets
 from dataclasses import dataclass
 
-# Add AIDA to path
+# Add AIDA and llm to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
+
+# Import intent validation system
+try:
+    from intent_bridge import IntentBridge, process_command_with_intent
+    from intent_validator import ValidationStatus
+    INTENT_VALIDATION_AVAILABLE = True
+except ImportError:
+    INTENT_VALIDATION_AVAILABLE = False
+    print("[LLM Server] Intent validation not available")
+
+# Import AIDA Bayesian intent inference
+try:
+    from bayesian_intent import (
+        bayesian_validate_intent,
+        get_inference_engine,
+        reset_inference_engine
+    )
+    BAYESIAN_INTENT_AVAILABLE = True
+    print("[LLM Server] AIDA Bayesian intent inference loaded")
+except ImportError:
+    BAYESIAN_INTENT_AVAILABLE = False
+    print("[LLM Server] Bayesian intent not available, using heuristic validation")
+
+# Import intent learning (data collection)
+try:
+    from intent_learning import (
+        log_intent_observation,
+        start_session,
+        apply_learned_priors_to_engine,
+    )
+    INTENT_LEARNING_AVAILABLE = True
+    print("[LLM Server] Intent learning/logging enabled")
+except ImportError:
+    INTENT_LEARNING_AVAILABLE = False
+    print("[LLM Server] Intent learning not available")
+
+
+# Map XC controller phase names to Bayesian intent phase names
+# The XC controller uses 13 detailed phases; Bayesian engine uses broader categories
+XCPHASE_TO_BAYESIAN = {
+    "GROUND_ROLL": "ground",
+    "ROTATION": "takeoff",
+    "INITIAL_CLIMB": "initial_climb",
+    "CLIMB": "climb",
+    "CRUISE_TO_TP": "cruise",
+    "TURN_TO_INTERCEPT": "approach",
+    "INTERCEPT_LEG": "approach",
+    "FINAL_APPROACH": "final",
+    "SHORT_FINAL": "final",
+    "FLARE": "flare",
+    "ROLLOUT": "rollout",
+    "LANDING": "landing",
+    "LANDED": "ground",
+    "HANGAR": "ground",
+    "IDLE": "ground",
+}
+
+
+def make_json_safe(obj):
+    """Convert numpy types and nested structures to JSON-serializable Python types"""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: make_json_safe(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_safe(v) for v in obj]
+    elif isinstance(obj, (np.integer, np.floating)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
 
 # Try to import llama-cpp-python
 try:
@@ -949,6 +1023,19 @@ class LLMCommandServer:
         self.controller = FlightController()
         self.clients = set()
 
+        # Initialize intent learning (start logging session, apply learned priors)
+        if INTENT_LEARNING_AVAILABLE:
+            start_session()
+            print("[LLM Server] Intent learning session started")
+
+        if BAYESIAN_INTENT_AVAILABLE and INTENT_LEARNING_AVAILABLE:
+            try:
+                engine = get_inference_engine()
+                if apply_learned_priors_to_engine(engine):
+                    print("[LLM Server] Applied learned priors to Bayesian engine")
+            except Exception as e:
+                print(f"[LLM Server] Could not apply learned priors: {e}")
+
     async def handle_client(self, websocket):
         """Handle a connected client"""
         self.clients.add(websocket)
@@ -1001,8 +1088,97 @@ class LLMCommandServer:
                     "action": None
                 }
 
+            # Run AIDA Bayesian intent inference (for control commands)
+            intent_info = None
+            if cmd.action in ["heading", "altitude", "land"]:
+                try:
+                    # Get current flight phase from controller state
+                    # Map XC phase names (GROUND_ROLL, CRUISE_TO_TP, etc.)
+                    # to Bayesian phase names (ground, cruise, approach, etc.)
+                    current_phase = self.controller.current_state.get("phase", "cruise")
+                    if isinstance(current_phase, str):
+                        phase_str = XCPHASE_TO_BAYESIAN.get(
+                            current_phase.upper(),
+                            current_phase.lower()
+                        )
+                    else:
+                        phase_str = "cruise"
+
+                    # Use Bayesian inference if available (preferred)
+                    if BAYESIAN_INTENT_AVAILABLE:
+                        bayesian_result = bayesian_validate_intent(
+                            action=cmd.action,
+                            value=cmd.value,
+                            target=cmd.target,
+                            telemetry=self.controller.current_state,
+                            phase=phase_str,
+                            use_stateful=True  # Enable multi-step tracking
+                        )
+                        # Convert to JSON-safe types (numpy -> Python)
+                        bayesian_result = make_json_safe(bayesian_result)
+                        intent_info = {
+                            "validated": bayesian_result["validated"],
+                            "confidence": bayesian_result["confidence"],
+                            "hard_gates": bayesian_result["hard_gates"],
+                            "soft_scores": bayesian_result["soft_scores"],
+                            "temporal": bayesian_result["temporal"],  # Sequence coherence, trend
+                            "bayesian": bayesian_result["bayesian"],  # Credible intervals, anomaly
+                            "issues": bayesian_result["issues"]
+                        }
+                        # Log with temporal info
+                        trend = bayesian_result["temporal"].get("trend", "stable")
+                        coherence = bayesian_result["temporal"].get("sequence_coherence", 1.0)
+                        print(f"[AIDA] Bayesian intent: valid={intent_info['validated']}, "
+                              f"confidence={intent_info['confidence']:.2f}, "
+                              f"coherence={coherence:.2f}, trend={trend}")
+
+                    # Fallback to heuristic validation
+                    elif INTENT_VALIDATION_AVAILABLE:
+                        intent_result = process_command_with_intent(
+                            action=cmd.action,
+                            value=cmd.value,
+                            target=cmd.target,
+                            raw_text=cmd.raw_text,
+                            context=self.controller.current_state
+                        )
+                        intent_info = {
+                            "validated": intent_result.get("validation", {}).get("is_valid", False),
+                            "confidence": intent_result.get("validation", {}).get("confidence", {}).get("overall_confidence", 0),
+                            "hard_gates": intent_result.get("validation", {}).get("confidence", {}).get("hard_gates", {}),
+                            "soft_scores": intent_result.get("validation", {}).get("confidence", {}).get("soft_scores", {}),
+                            "intent_id": intent_result.get("intent", {}).get("intent_id") if intent_result.get("intent") else None,
+                            "issues": [i.get("message") for i in intent_result.get("validation", {}).get("issues", [])]
+                        }
+                        print(f"[LLM Server] Heuristic validation: valid={intent_info['validated']}, confidence={intent_info['confidence']:.2f}")
+
+                except Exception as e:
+                    print(f"[LLM Server] Intent validation error: {e}")
+                    import traceback
+                    traceback.print_exc()
+
             # Execute the command
             result = self.controller.execute_command(cmd)
+
+            # Log intent observation for learning (if available)
+            if INTENT_LEARNING_AVAILABLE and intent_info is not None:
+                try:
+                    # Determine outcome based on validation
+                    if not intent_info.get("validated", True):
+                        outcome = "anomaly_flagged"
+                    elif intent_info.get("confidence", 1.0) < 0.3:
+                        outcome = "low_confidence"
+                    else:
+                        outcome = "executed"
+
+                    log_intent_observation(
+                        command={"action": cmd.action, "value": cmd.value, "target": cmd.target},
+                        telemetry=self.controller.current_state,
+                        phase=phase_str if 'phase_str' in dir() else "cruise",
+                        validation_result=intent_info,
+                        outcome=outcome,
+                    )
+                except Exception as e:
+                    print(f"[LLM Server] Intent logging error: {e}")
 
             # Generate pilot response
             if cmd.action == "heading":
@@ -1122,11 +1298,17 @@ class LLMCommandServer:
             else:
                 message = "Command acknowledged."
 
-            return {
+            response = {
                 "type": "response",
                 "message": message,
                 "action": result
             }
+
+            # Include intent validation info if available
+            if intent_info:
+                response["intent"] = intent_info
+
+            return response
 
         elif msg_type == "telemetry":
             # Update flight state from viewer

@@ -176,6 +176,11 @@ class AIDAChatbot {
       // Pilot response
       this.addMessage("pilot", data.message);
 
+      // Show intent validation info if available
+      if (data.intent) {
+        this.showIntentInfo(data.intent);
+      }
+
       // If there's an action confirmation, forward to telemetry WebSocket
       if (data.action && data.action.success) {
         this.forwardOverrideToSim(data.action);
@@ -269,6 +274,75 @@ class AIDAChatbot {
   updateFlightState(state) {
     // Can be called from main viewer to sync state
     this.currentState = state;
+  }
+
+  // Show intent validation info with AIDA Bayesian metrics
+  showIntentInfo(intent) {
+    const confidence = (intent.confidence * 100).toFixed(0);
+    const validated = intent.validated;
+    const hardGates = intent.hard_gates || {};
+    const softScores = intent.soft_scores || {};
+    const temporal = intent.temporal || {};
+    const bayesian = intent.bayesian || {};
+
+    // Determine status color
+    let statusClass = 'intent-ok';
+    if (!validated) {
+      statusClass = 'intent-error';
+    } else if (confidence < 70) {
+      statusClass = 'intent-warn';
+    }
+
+    // Build scores display
+    const safety = softScores.safety_margin ? (softScores.safety_margin * 100).toFixed(0) : '--';
+    const coherence = softScores.semantic_coherence ? (softScores.semantic_coherence * 100).toFixed(0) : '--';
+    const specificity = softScores.specificity ? (softScores.specificity * 100).toFixed(0) : '--';
+
+    // Temporal/Bayesian info
+    const seqCoherence = temporal.sequence_coherence ? (temporal.sequence_coherence * 100).toFixed(0) : '--';
+    const trend = temporal.trend || 'stable';
+    const historyLen = temporal.history_length || 0;
+    const anomalyScore = bayesian.anomaly_score ? bayesian.anomaly_score.toFixed(2) : '--';
+
+    // Build gates display
+    const gates = [];
+    if (hardGates.schema_valid !== undefined) {
+      gates.push(hardGates.schema_valid ? 'Schema OK' : 'Schema FAIL');
+    }
+    if (hardGates.constraints_feasible !== undefined) {
+      gates.push(hardGates.constraints_feasible ? 'Constraints OK' : 'Constraints FAIL');
+    }
+    if (hardGates.goals_achievable !== undefined) {
+      gates.push(hardGates.goals_achievable ? 'Goals OK' : 'Goals FAIL');
+    }
+
+    const msg = document.createElement('div');
+    msg.className = `chat-message intent ${statusClass}`;
+    msg.innerHTML = `
+      <div class="intent-header">
+        <span class="intent-label">AIDA Bayesian Intent</span>
+        <span class="intent-confidence">${confidence}%</span>
+      </div>
+      <div class="intent-scores">
+        <span title="Safety margin score">Safety: ${safety}%</span>
+        <span title="Semantic coherence score">Coherence: ${coherence}%</span>
+        <span title="Specificity score">Specificity: ${specificity}%</span>
+      </div>
+      <div class="intent-scores" style="margin-top: 4px; color: #7dd3fc;">
+        <span title="Sequence coherence - consistency of command sequence">Seq: ${seqCoherence}%</span>
+        <span title="Detected flight trend">Trend: ${trend}</span>
+        <span title="Number of tracked intent transitions">History: ${historyLen}</span>
+        <span title="Bayesian anomaly score (lower = more normal)">Anomaly: ${anomalyScore}</span>
+      </div>
+      <div class="intent-gates">${gates.join(' | ')}</div>
+      ${intent.issues && intent.issues.length > 0 ?
+        `<div class="intent-issues">${intent.issues.slice(0,2).join(', ')}</div>` : ''}
+    `;
+
+    this.messagesEl.appendChild(msg);
+    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+
+    console.log('[Chatbot] AIDA Bayesian intent validation:', intent);
   }
 }
 
