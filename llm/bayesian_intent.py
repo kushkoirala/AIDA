@@ -1173,6 +1173,26 @@ def bayesian_validate_intent(
             f"intent may be erratic"
         )
 
+    # IMM integration: if the IMM estimator has been running, blend its
+    # confidence with the single-model confidence.  The IMM provides a
+    # multi-model view that is especially valuable during maneuvering phases
+    # where the single-model prior is too tight.
+    imm = getattr(inference, '_imm_estimator', None)
+    if imm is not None and imm.frame > 0:
+        imm_conf = imm.get_confidence()
+        imm_summary = imm.get_mode_summary()
+        result["imm"] = imm_summary
+
+        # Blend: take the MAX of single-model and IMM confidence.
+        # This lets the IMM "rescue" maneuvering phases where the single
+        # model gives near-zero confidence, while the single model still
+        # dominates for stable phases where it's already high.
+        single_conf = result["confidence"]
+        blended = max(single_conf, imm_conf)
+        result["confidence"] = blended
+        result["soft_scores"]["imm_confidence"] = imm_conf
+        result["soft_scores"]["imm_dominant_mode"] = imm_summary["dominant"]
+
     # BIRL integration: if a BIRL engine is attached, include reward posterior
     # and modulate confidence by entropy (high entropy = less certain intent)
     birl = getattr(inference, '_birl_engine', None)

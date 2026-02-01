@@ -45,6 +45,16 @@ except ImportError as e:
     CBF_AVAILABLE = False
     print(f"[AIDA] CBF not available: {e}")
 
+# IMM multi-model estimator (Chapter 4 of thesis)
+try:
+    from llm.imm_estimator import IMMEstimator
+    from llm.bayesian_intent import get_inference_engine as get_bayesian_engine
+    IMM_AVAILABLE = True
+    print("[AIDA] IMM multi-model estimator loaded")
+except ImportError as e:
+    IMM_AVAILABLE = False
+    print(f"[AIDA] IMM not available: {e}")
+
 # Unit conversions
 M_TO_FT = 3.28084
 FT_TO_M = 0.3048
@@ -427,6 +437,16 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
             )
             print("[AIDA] CBF safety layer active")
 
+        # Initialize IMM estimator and attach to Bayesian inference engine
+        imm_estimator = None
+        if IMM_AVAILABLE:
+            imm_estimator = IMMEstimator()
+            # Attach to the global Bayesian inference engine so that
+            # bayesian_validate_intent() can access IMM confidence
+            engine = get_bayesian_engine()
+            engine._imm_estimator = imm_estimator
+            print("[AIDA] IMM multi-model estimator active")
+
         try:
             while sim_time < max_time and not flight_state["restart_requested"]:
                 # Check for commands
@@ -536,6 +556,23 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
 
                 update_telemetry(state, action, controller.phase.name, distance_to_dest, origin, earth)
                 shared_state["sim_time"] = sim_time
+
+                # IMM update: feed current telemetry every frame
+                if imm_estimator is not None:
+                    imm_estimator.set_phase(controller.phase.name)
+                    imm_result = imm_estimator.update(
+                        heading_deg=shared_state["heading_deg"],
+                        altitude_ft=shared_state["altitude_ft"],
+                        airspeed_kts=shared_state["airspeed_kts"],
+                        commanded_heading=controller.get_target_heading_deg(),
+                        commanded_altitude=controller.get_target_altitude_ft(),
+                        dt=dt,
+                    )
+                    shared_state["imm_confidence"] = float(round(imm_result["confidence"], 4))
+                    shared_state["imm_dominant"] = imm_result["dominant_mode"]
+                    shared_state["imm_tracking"] = float(round(imm_result["mode_probs"]["tracking"], 4))
+                    shared_state["imm_maneuvering"] = float(round(imm_result["mode_probs"]["maneuvering"], 4))
+                    shared_state["imm_anomalous"] = float(round(imm_result["mode_probs"]["anomalous"], 4))
 
                 # Update flight plan parameters for LLM context
                 shared_state["cruise_altitude_ft"] = controller.cruise_altitude_ft
