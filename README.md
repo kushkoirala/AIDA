@@ -120,47 +120,55 @@ Open `http://localhost:8000` in your browser. Select an aircraft in the 3D hanga
 AIDA operates as a multi-layer autonomous copilot system with three real-time WebSocket connections:
 
 ```mermaid
-graph TB
-    subgraph Viewer["3D Viewer (Port 8000)"]
-        V1[WebGL/Three.js]
-        V2[Telemetry Dashboard]
-        V3[3D Hangar]
+graph LR
+    subgraph PILOT["🎮 PILOT INTERFACE"]
+        direction TB
+        V["🖥️ 3D Viewer\n+ Telemetry HUD\nPort 8000"]
+        CB["💬 Chatbot\nNatural Language"]
     end
 
-    subgraph Chatbot["Chatbot UI"]
-        C1[Natural Language Input]
-        C2[Intent Display]
+    subgraph AI["🤖 LLM COPILOT"]
+        direction TB
+        L["⚡ xLAM-2-8B\nGPU CUDA\nPort 8766"]
     end
 
-    subgraph LLM["LLM Server (Port 8766)"]
-        L1[xLAM-2-8B]
-        L2[Function Calling]
-        L3[GPU CUDA Inference]
+    subgraph BRAIN["🧠 INTELLIGENCE LAYER"]
+        direction TB
+        IMM["📊 IMM Estimator\n3 Modes"]
+        BAY["📐 Bayesian Intent\nVon Mises + Gaussian"]
+        BIRL["🎯 BIRL\nMCMC Rewards"]
+        CBF["🛡️ CBF Safety\n6 Barriers + QP"]
+        IMM --> BAY
+        BIRL --> CBF
     end
 
-    subgraph FlightServer["Flight Dynamics Server — run_dynamic_xc.py"]
-        subgraph Dynamics["Simulation"]
-            D1[6-DOF RK4 Sim]
-        end
-        subgraph Controller["Control"]
-            D2[XC Controller\n17-Phase FSM\n+ PID Loops]
-        end
-        subgraph Safety["Safety Layer"]
-            D3[BIRL\nMCMC] --> D4[CBF\nSafety Filter]
-        end
-        subgraph Inference["Intent Estimation"]
-            D5[IMM\nEstimator] --> D6[Bayesian\nIntent]
-        end
-
-        D1 --> D2
-        D2 --> D4
-        D4 --> D1
+    subgraph SIM["✈️ FLIGHT DYNAMICS"]
+        direction TB
+        CTRL["🎛️ XC Controller\n17-Phase FSM"]
+        DYN["⚙️ 6-DOF RK4\nCUDA Sim"]
+        CTRL --> DYN
     end
 
-    Viewer <-- "WS 8765\nTelemetry" --> FlightServer
-    Chatbot --> LLM
-    LLM -- "WS 8765\nDirect Override Push" --> FlightServer
-    LLM --> Chatbot
+    CB <--> L
+    L -- "Override" --> CTRL
+    V <-- "WS 8765" --> DYN
+    BAY -.-> L
+    CBF --> CTRL
+
+    style PILOT fill:#1a1a2e,color:#e0e0ff,stroke:#4a4a8a
+    style AI fill:#16213e,color:#e0ffff,stroke:#0f3460
+    style BRAIN fill:#1b1b3a,color:#ffe0f0,stroke:#533483
+    style SIM fill:#0a2647,color:#e0ffe0,stroke:#144272
+
+    style V fill:#2196F3,color:#fff,stroke:#1565C0,stroke-width:2px
+    style CB fill:#FF9800,color:#fff,stroke:#E65100,stroke-width:2px
+    style L fill:#9C27B0,color:#fff,stroke:#6A1B9A,stroke-width:2px
+    style IMM fill:#E91E63,color:#fff,stroke:#AD1457,stroke-width:2px
+    style BAY fill:#FF5722,color:#fff,stroke:#BF360C,stroke-width:2px
+    style BIRL fill:#F44336,color:#fff,stroke:#B71C1C,stroke-width:2px
+    style CBF fill:#D32F2F,color:#fff,stroke:#B71C1C,stroke-width:2px
+    style CTRL fill:#4CAF50,color:#fff,stroke:#2E7D32,stroke-width:2px
+    style DYN fill:#00BCD4,color:#fff,stroke:#00838F,stroke-width:2px
 ```
 
 ### Component Overview
@@ -222,25 +230,31 @@ The LLM server pushes overrides **directly** to the sim via the telemetry WebSoc
 
 ```mermaid
 sequenceDiagram
-    participant Pilot
-    participant LLM as LLM Server<br/>(xLAM-2-8B)
-    participant Bayes as Bayesian<br/>Validator
-    participant Sim as Flight Sim<br/>(Port 8765)
-
-    Pilot->>LLM: Natural language command
-    LLM->>LLM: Parse via function calling
-    LLM->>Bayes: Validate intent
-    alt confidence ≥ 0.3
-        Bayes-->>LLM: CLEARED
-        LLM->>Sim: _push_override_to_sim()
-        Sim-->>Sim: Applied next frame (20ms)
-    else confidence < 0.3
-        Bayes-->>LLM: ADVISORY HOLD
-        LLM-->>Pilot: Request confirmation
-        Pilot->>LLM: "confirm"
-        LLM->>Sim: _push_override_to_sim()
+    box rgb(26, 26, 46) Pilot Interface
+        participant Pilot as 🎮 Pilot
     end
-    LLM-->>Pilot: Response with validation details
+    box rgb(22, 33, 62) AI Copilot
+        participant LLM as 🤖 LLM Server
+        participant Bayes as 📐 Bayesian Validator
+    end
+    box rgb(10, 38, 71) Flight Sim
+        participant Sim as ✈️ Simulator
+    end
+
+    Pilot->>LLM: "Turn heading 270"
+    LLM->>LLM: xLAM function call parse
+    LLM->>Bayes: Validate intent
+    alt ✅ confidence ≥ 30%
+        Bayes-->>LLM: CLEARED
+        LLM->>Sim: Direct override push
+        Sim-->>Sim: Applied next frame
+    else ⚠️ confidence < 30%
+        Bayes-->>LLM: ADVISORY HOLD
+        LLM-->>Pilot: "Heading diverges from KHUT. Confirm?"
+        Pilot->>LLM: "confirm"
+        LLM->>Sim: Direct override push
+    end
+    LLM-->>Pilot: Response + confidence details
 ```
 
 ### Flight Context
@@ -258,17 +272,23 @@ The Bayesian intent inference engine validates every flight command against **le
 ### Architecture
 
 ```mermaid
-graph TD
-    A["Command\n(heading / altitude / land)"] --> B["Phase Prior Lookup\n(17 phases)"]
-    B --> C["Von Mises Heading Likelihood\nκ = learned concentration\n(e.g., cruise κ = 8.2)"]
-    C --> D["Gaussian Altitude Likelihood\nμ, σ = learned per phase\n(e.g., cruise μ=5500, σ=120)"]
-    D --> E["Sequence Analysis\n+ Anomaly Scoring"]
-    E --> F["IMM Confidence Blending\nmax(single, imm_conf)"]
-    F --> G["BIRL Entropy Modulation\nconfidence *= (1 − 0.5 × H)"]
-    G --> H["confidence ∈ 0, 1\nvalidated: bool\nissues: list"]
+graph LR
+    A["✈️ Command"] --> B["📋 Phase Prior\n17 phases"]
+    B --> C["🧭 Von Mises\nHeading κ"]
+    C --> D["📏 Gaussian\nAltitude μ,σ"]
+    D --> E["🔍 Sequence\nAnalysis"]
+    E --> F["📊 IMM\nBlending"]
+    F --> G["🎯 BIRL\nEntropy"]
+    G --> H["✅ Result"]
 
-    style A fill:#4a90d9,color:#fff
-    style H fill:#2ecc71,color:#fff
+    style A fill:#2196F3,color:#fff,stroke:#1565C0,stroke-width:2px
+    style B fill:#9C27B0,color:#fff,stroke:#6A1B9A,stroke-width:2px
+    style C fill:#E91E63,color:#fff,stroke:#AD1457,stroke-width:2px
+    style D fill:#FF5722,color:#fff,stroke:#BF360C,stroke-width:2px
+    style E fill:#FF9800,color:#fff,stroke:#E65100,stroke-width:2px
+    style F fill:#4CAF50,color:#fff,stroke:#2E7D32,stroke-width:2px
+    style G fill:#009688,color:#fff,stroke:#00695C,stroke-width:2px
+    style H fill:#00BCD4,color:#fff,stroke:#00838F,stroke-width:2px
 ```
 
 ### Learned Priors
@@ -434,25 +454,45 @@ A 17-phase Finite State Machine (FSM) controller with PID loops handles the comp
 ### 17 Flight Phases
 
 ```mermaid
-graph LR
-    subgraph Takeoff
-        GR[GROUND_ROLL] --> ROT[ROTATION] --> IC[INITIAL_CLIMB]
-    end
-    subgraph Departure
-        IC --> CW_T[CROSSWIND\nTURN] --> CW[CROSSWIND] --> DW_T[DOWNWIND\nTURN] --> DEP[DEPARTURE]
-    end
-    subgraph EnRoute
-        DEP --> ER[EN_ROUTE] --> ARR[ARRIVAL]
-    end
-    subgraph Approach
-        ARR --> PE[PATTERN\nENTRY] --> DW[DOWNWIND] --> BT[BASE\nTURN] --> BASE --> FT[FINAL\nTURN]
-    end
-    subgraph Landing
-        FT --> FA[FINAL\nAPPROACH] --> SF[SHORT\nFINAL] --> FL[FLARE] --> RO[ROLLOUT] --> LDG[LANDING] --> LANDED
+graph TD
+    subgraph T["🛫 TAKEOFF"]
+        GR["GROUND ROLL"] --> ROT["ROTATION"] --> IC["INITIAL CLIMB"] --> CLB["CLIMB"]
     end
 
-    style GR fill:#e67e22,color:#fff
-    style LANDED fill:#2ecc71,color:#fff
+    subgraph C["✈️ EN ROUTE"]
+        CTP["CRUISE TO TP"] --> TTI["TURN TO INTERCEPT"] --> IL["INTERCEPT LEG"]
+    end
+
+    subgraph A["🔽 APPROACH"]
+        FA["FINAL APPROACH"] --> SF["SHORT FINAL"]
+    end
+
+    subgraph L["🛬 LANDING"]
+        FL["FLARE"] --> RO["ROLLOUT"] --> LDG["LANDING"] --> DONE["LANDED ✅"]
+    end
+
+    CLB --> CTP
+    IL --> FA
+    SF --> FL
+
+    style T fill:#1a1a2e,color:#FFD700,stroke:#FF9800,stroke-width:2px
+    style C fill:#1a1a2e,color:#87CEEB,stroke:#2196F3,stroke-width:2px
+    style A fill:#1a1a2e,color:#FFA07A,stroke:#FF5722,stroke-width:2px
+    style L fill:#1a1a2e,color:#90EE90,stroke:#4CAF50,stroke-width:2px
+
+    style GR fill:#FF9800,color:#fff,stroke-width:2px
+    style ROT fill:#FF9800,color:#fff,stroke-width:2px
+    style IC fill:#FFC107,color:#000,stroke-width:2px
+    style CLB fill:#FFC107,color:#000,stroke-width:2px
+    style CTP fill:#2196F3,color:#fff,stroke-width:2px
+    style TTI fill:#2196F3,color:#fff,stroke-width:2px
+    style IL fill:#2196F3,color:#fff,stroke-width:2px
+    style FA fill:#FF5722,color:#fff,stroke-width:2px
+    style SF fill:#FF5722,color:#fff,stroke-width:2px
+    style FL fill:#4CAF50,color:#fff,stroke-width:2px
+    style RO fill:#4CAF50,color:#fff,stroke-width:2px
+    style LDG fill:#4CAF50,color:#fff,stroke-width:2px
+    style DONE fill:#00C853,color:#fff,stroke-width:3px
 ```
 
 | Phase | Description | Key Control |
@@ -544,14 +584,14 @@ Spherical Earth model with curvature corrections for navigation:
 
 ```mermaid
 graph LR
-    A["Expert Demos\n(48+ flights)"] --> B["Behavior Cloning\n(optional warm-start)"]
-    B --> C["Residual PPO\n(fine-tuning)"]
-    C --> D["Evaluation\n(batch runs)"]
+    A["📦 Expert Demos\n48+ flights"] ==> B["🧠 Behavior Cloning\nWarm-start"]
+    B ==> C["⚡ Residual PPO\nFine-tuning"]
+    C ==> D["✅ Evaluation\nBatch runs"]
 
-    style A fill:#3498db,color:#fff
-    style B fill:#9b59b6,color:#fff
-    style C fill:#e67e22,color:#fff
-    style D fill:#2ecc71,color:#fff
+    style A fill:#2196F3,color:#fff,stroke:#1565C0,stroke-width:3px
+    style B fill:#9C27B0,color:#fff,stroke:#6A1B9A,stroke-width:3px
+    style C fill:#FF9800,color:#fff,stroke:#E65100,stroke-width:3px
+    style D fill:#4CAF50,color:#fff,stroke:#2E7D32,stroke-width:3px
 ```
 
 ### Residual RL Architecture

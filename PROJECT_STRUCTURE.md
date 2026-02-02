@@ -270,20 +270,24 @@ Browser-based Three.js visualization:
 
 ```mermaid
 graph TD
-    GPU["GPU Flight Simulator\n(CUDA, 577M steps/s)"] --> BC["BC Datasets (NPZ)\nExpert trajectories"]
-    BC --> RL["PPO / Residual RL\n(SB3, curriculum)"]
-    ENV["AIDA RL Env\n(Gymnasium)"] <--> RL
-    RL --> Policy["Trained Policy (ONNX)\n+ XC Controller (FSM)"]
-    Policy --> Sim["run_dynamic_xc.py\nLive simulation"]
-    Sim --> Viewer["3D Viewer\n(Three.js)\nPort 8000"]
-    Sim --> LLM["LLM Copilot\n(Llama 8B)\nPort 8766"]
-    Sim --> Bayes["Bayesian Intent\n+ IMM + BIRL\n+ CBF"]
+    GPU["⚡ GPU Flight Sim\nCUDA 577M steps/s"] ==> BC["📦 BC Datasets\nExpert Trajectories"]
+    BC ==> RL["🧠 PPO + Residual RL\nSB3 Curriculum"]
+    ENV["🎮 AIDA RL Env\nGymnasium"] <-.-> RL
+    RL ==> Policy["🎯 Trained Policy\nONNX + FSM"]
+    Policy ==> Sim["✈️ Live Simulation\nrun_dynamic_xc.py"]
+    Sim --> Viewer["🖥️ 3D Viewer\nPort 8000"]
+    Sim --> LLM["🤖 LLM Copilot\nPort 8766"]
+    Sim --> Brain["🧠 Bayesian + IMM\nBIRL + CBF"]
 
-    style GPU fill:#76b900,color:#fff
-    style Policy fill:#e67e22,color:#fff
-    style Sim fill:#3498db,color:#fff
-    style LLM fill:#9b59b6,color:#fff
-    style Bayes fill:#e74c3c,color:#fff
+    style GPU fill:#76B900,color:#fff,stroke:#558B2F,stroke-width:3px
+    style BC fill:#2196F3,color:#fff,stroke:#1565C0,stroke-width:2px
+    style RL fill:#9C27B0,color:#fff,stroke:#6A1B9A,stroke-width:2px
+    style ENV fill:#607D8B,color:#fff,stroke:#37474F,stroke-width:2px
+    style Policy fill:#FF9800,color:#fff,stroke:#E65100,stroke-width:3px
+    style Sim fill:#00BCD4,color:#fff,stroke:#00838F,stroke-width:3px
+    style Viewer fill:#2196F3,color:#fff,stroke:#1565C0,stroke-width:2px
+    style LLM fill:#9C27B0,color:#fff,stroke:#6A1B9A,stroke-width:2px
+    style Brain fill:#F44336,color:#fff,stroke:#B71C1C,stroke-width:2px
 ```
 
 ## Telemetry Protocol
