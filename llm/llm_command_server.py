@@ -1486,17 +1486,27 @@ class LLMCommandServer:
         return response
 
     async def broadcast_overrides(self):
-        """Periodically broadcast override commands to connected telemetry clients"""
+        """Broadcast override commands to chatbot clients when state changes.
+
+        Only sends once per override change (not continuously) to avoid
+        spamming the sim with duplicate commands.
+        """
+        last_overrides = None
         while True:
             if self.controller.override_active:
                 overrides = self.controller.get_overrides()
-                message = json.dumps({"type": "override", "data": overrides})
-                for client in self.clients:
-                    try:
-                        await client.send(message)
-                    except:
-                        pass
-            await asyncio.sleep(0.1)
+                # Only broadcast when the override state actually changes
+                if overrides != last_overrides:
+                    last_overrides = overrides.copy()
+                    message = json.dumps({"type": "override", "data": overrides})
+                    for client in self.clients:
+                        try:
+                            await client.send(message)
+                        except:
+                            pass
+            else:
+                last_overrides = None
+            await asyncio.sleep(0.5)
 
     async def run(self):
         """Start the WebSocket server"""

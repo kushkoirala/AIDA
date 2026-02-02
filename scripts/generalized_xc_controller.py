@@ -310,11 +310,15 @@ class GeneralizedXCController:
         self._needs_recalculate = False
 
         # Control gains
-        self.kp_pitch = 0.8
-        self.kd_pitch = 0.6
-        self.kp_roll = 1.2
-        self.kd_roll = 0.4
-        self.turn_bank_angle = np.deg2rad(25.0)
+        self.kp_pitch = 1.0
+        self.kd_pitch = 0.4
+        self.kp_roll = 1.5
+        self.kd_roll = 0.5
+        self.turn_bank_angle = np.deg2rad(30.0)
+
+        # Altitude hold integral state
+        self.alt_integral_ft = 0.0
+        self.alt_integral_max = 500.0  # Anti-windup clamp (ft·s)
 
         # Target pitch angles
         self.pitch_rotate = np.deg2rad(10.0)
@@ -358,6 +362,7 @@ class GeneralizedXCController:
         self.phase = XCPhase.GROUND_ROLL
         self.phase_start_time = 0.0
         self.has_turned_to_cruise = False
+        self.alt_integral_ft = 0.0
         self.clear_overrides()
 
     def clear_overrides(self):
@@ -494,7 +499,7 @@ class GeneralizedXCController:
                          roll: float, roll_rate: float) -> float:
         """Compute aileron input for heading control."""
         error = self._normalize_angle(target - current)
-        target_roll = np.clip(error * 0.5, -self.turn_bank_angle, self.turn_bank_angle)
+        target_roll = np.clip(error * 0.8, -self.turn_bank_angle, self.turn_bank_angle)
         roll_error = target_roll - roll
         return np.clip(self.kp_roll * roll_error - self.kd_roll * roll_rate, -1.0, 1.0)
 
@@ -558,8 +563,12 @@ class GeneralizedXCController:
             self.phase = XCPhase.CLIMB
         elif self.phase == XCPhase.CLIMB and altitude_ft >= self.cruise_altitude_ft - 50:
             self.phase = XCPhase.CRUISE_TO_TP
+            self.alt_integral_ft = 0.0  # Reset integral for clean altitude hold start
         elif self.phase == XCPhase.CRUISE_TO_TP and dist_to_tp_ft < self.tp_trigger_distance_ft:
-            self.phase = XCPhase.TURN_TO_INTERCEPT
+            # Don't transition while a heading override is active — pilot is
+            # deliberately diverting, so stay in cruise mode.
+            if not (self.override_active and self.override_heading is not None):
+                self.phase = XCPhase.TURN_TO_INTERCEPT
         elif self.phase == XCPhase.TURN_TO_INTERCEPT:
             heading_error = abs(self._normalize_angle(psi - self.runway_heading))
             if heading_error < np.deg2rad(10):
@@ -580,23 +589,41 @@ class GeneralizedXCController:
 
         # Control logic by phase
         if self.phase == XCPhase.GROUND_ROLL:
-            return np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+            # Slight aft stick at higher speeds to unload nosewheel and
+            # pre-position for rotation, preventing ground bouncing.
+            pre_rotate_elevator = 0.0
+            if airspeed_fps > 0.8 * self.v_rotate:
+                pre_rotate_elevator = self._pitch_control(np.deg2rad(2.0), theta, q)
+            return np.array([1.0, 0.0, pre_rotate_elevator, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.ROTATION:
+            # Smooth pitch ramp over 2 seconds instead of step input
+            rotation_elapsed = sim_time - self.phase_start_time
+            ramp_time = 2.0  # seconds to reach full rotation pitch
+            ramp_fraction = min(rotation_elapsed / ramp_time, 1.0)
+            pitch_target = ramp_fraction * self.pitch_rotate
             return np.array([1.0, 0.0,
-                           self._pitch_control(self.pitch_rotate, theta, q),
+                           self._pitch_control(pitch_target, theta, q),
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.INITIAL_CLIMB:
+            # Smooth blend from rotation pitch to climb pitch
+            alt_blend = min((altitude_ft - self.initial_climb_alt_ft) / 200.0, 1.0)
+            alt_blend = max(alt_blend, 0.0)
+            pitch_target = self.pitch_rotate * (1 - alt_blend) + self.pitch_climb * alt_blend
             return np.array([1.0,
                            self._heading_control(self.departure_heading, psi, phi, p),
-                           self._pitch_control(self.pitch_climb, theta, q),
+                           self._pitch_control(pitch_target, theta, q),
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.CLIMB:
             if altitude_ft > self.turn_to_cruise_altitude_ft:
                 self.has_turned_to_cruise = True
-            hdg = self.cruise_heading if self.has_turned_to_cruise else self.departure_heading
+            # Respect heading override during climb
+            if self.override_active and self.override_heading is not None:
+                hdg = np.deg2rad(self.override_heading)
+            else:
+                hdg = self.cruise_heading if self.has_turned_to_cruise else self.departure_heading
             return np.array([1.0,
                            self._heading_control(hdg, psi, phi, p),
                            self._pitch_control(self.pitch_climb, theta, q),
@@ -614,22 +641,26 @@ class GeneralizedXCController:
                                   else self.cruise_altitude_ft)
             alt_error_ft = altitude_ft - target_altitude_ft
 
-            # Altitude hold with stronger damping
-            # Target vertical speed proportional to altitude error
-            target_vs_fps = -0.05 * alt_error_ft  # Stronger gain for faster correction
+            # PI altitude hold: proportional + integral to eliminate steady-state offset
+            # Accumulate integral (with anti-windup clamp)
+            self.alt_integral_ft += alt_error_ft * 0.02  # dt ≈ 0.02s
+            self.alt_integral_ft = np.clip(self.alt_integral_ft,
+                                           -self.alt_integral_max, self.alt_integral_max)
+
+            # Target vertical speed: P + I
+            target_vs_fps = -0.08 * alt_error_ft - 0.005 * self.alt_integral_ft
             target_vs_fps = np.clip(target_vs_fps, -800/60, 800/60)  # ±800 fpm max
 
             vs_error_fps = climb_rate_fps - target_vs_fps
 
             # Pitch control to achieve target vertical speed
-            # Stronger damping to prevent overshoot
             pitch_correction = np.deg2rad(-0.6 * vs_error_fps)
             pitch_correction = np.clip(pitch_correction, np.deg2rad(-10.0), np.deg2rad(10.0))
             pitch_target = self.pitch_cruise + pitch_correction
 
             # Throttle: reduce when above target, increase when below
             base_throttle = 0.50
-            throttle_correction = -0.001 * alt_error_ft  # Stronger throttle response
+            throttle_correction = -0.002 * alt_error_ft  # Stronger throttle response
             throttle = np.clip(base_throttle + throttle_correction, 0.3, 0.7)
 
             return np.array([throttle,
@@ -638,8 +669,13 @@ class GeneralizedXCController:
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.TURN_TO_INTERCEPT:
+            # Respect heading override even during intercept turn
+            if self.override_active and self.override_heading is not None:
+                hdg = np.deg2rad(self.override_heading)
+            else:
+                hdg = self.runway_heading
             return np.array([0.7,
-                           self._heading_control(self.runway_heading, psi, phi, p),
+                           self._heading_control(hdg, psi, phi, p),
                            self._pitch_control(self.pitch_cruise, theta, q),
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
