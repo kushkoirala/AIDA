@@ -31,7 +31,7 @@ The core thesis contribution: an **Autonomous Copilot** architecture where a loc
 | **6-DOF GPU Simulation** | CUDA-accelerated RK4 flight dynamics, 577M steps/sec on RTX 4060 |
 
 ---
-
+Full Flight Video here : 'https://www.youtube.com/watch?v=NKPKqAlc9Z4'
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
