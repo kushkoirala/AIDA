@@ -175,10 +175,11 @@ class AircraftParams:
 def aircraft_params_from_config(config) -> AircraftParams:
     """Build simulator parameters from an ``aircraft_database`` config.
 
-    The inline ``AircraftParams()`` defaults are a different Cessna dataset
-    than ``get_aircraft("cessna172")`` — lateral coefficients (Clb, Clda, …)
-    do not match. Callers that know a model id must pass the database config
-    through here so there is one source of truth.
+    Callers that know a model id must pass the database config through here
+    so the simulator uses that airframe. Inline ``AircraftParams()`` defaults
+    are only the fallback for an unknown id. For ``cessna172`` the database
+    lateral set is the trainer model (it matches those defaults). The Udaan
+    Table 2 lateral block must not be substituted for the Cessna.
 
     Flap and spoiler increments are not in the database; those stay at the
     simulator defaults.

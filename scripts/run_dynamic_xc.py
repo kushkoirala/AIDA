@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "gpu-flight-dynamics" / "p
 
 from generalized_xc_controller import (
     GeneralizedXCController, XCPhase, AirportConfig,
-    KANSAS_AIRPORTS, create_controller
+    KANSAS_AIRPORTS, create_controller,
+    C172_VS_KTS, C172_VNE_KTS,
 )
 from flight_dynamics import (
     FlightSimulator, StateIndex, aircraft_model_from_command, resolve_aircraft_params,
@@ -260,9 +261,9 @@ def setup_flight(origin_icao, dest_icao):
         origin_alt_m=origin.elevation_ft * FT_TO_M
     )
 
-    # Dynamics from the aircraft database (telemetry model), not the inline
-    # AircraftParams defaults. Those two Cessna datasets disagree on lateral
-    # coefficients; the database is the source of truth.
+    # Dynamics from the aircraft database for the telemetry model.
+    # Unknown ids fall back to inline AircraftParams. cessna172's lateral
+    # set is the trainer model; the Udaan Table 2 block is not a Cessna.
     model_id = shared_state.get("model") or "cessna172"
     params, model_info = resolve_aircraft_params(model_id)
     shared_state["model"] = model_info["model"]
@@ -461,8 +462,8 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
             cbf_layer = FlightEnvelopeCBF(
                 min_altitude_ft=200.0,
                 max_altitude_ft=14000.0,
-                min_airspeed_kts=52.0,
-                max_airspeed_kts=155.0,
+                min_airspeed_kts=C172_VS_KTS,    # clean stall, X-Plane 172 SP
+                max_airspeed_kts=C172_VNE_KTS,   # never exceed
                 eta=0.3,
                 alpha_cbf=1.0,
             )
