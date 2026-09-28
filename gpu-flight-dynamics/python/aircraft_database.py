@@ -160,28 +160,30 @@ def get_cessna_172() -> AircraftConfig:
         ),
         
         latdi=LateralDerivatives(
-            # Side force derivatives (from Dynamics PDF Table 2)
-            CYb=-0.42,                      # Sideslip derivative (Table 2: Cy,beta)
-
-            # Rolling moment derivatives (Table 2)
-            Clb=-0.17,                      # Dihedral effect (Table 2: Cl,beta)
-            Clp=-0.81,                      # Roll damping (Table 2: Cl,p)
-            Clr=-0.35,                      # Roll due to yaw rate (Table 2: Cl,r)
-            Clda=0.65,                      # Aileron roll effectiveness (Table 2: Cl,delta_a)
-
-            # Yawing moment derivatives (Table 2)
-            Cnb=0.14,                       # Directional stability (Table 2: Cn,beta)
-            Cnp=-0.59,                      # Adverse yaw from roll (Table 2: Cn,p)
-            Cnr=-0.09,                      # Yaw damping (Table 2: Cn,r)
-
-            # Optional derivatives (Table 2)
-            CYp=0.0,                        # Not in table, assumed 0
-            CYr=0.97,                       # Table 2: Cy,r
-            CYda=0.0,                       # Table 2: Cy,delta_a = 0
-            CYdr=0.19,                      # Rudder side force (Table 2: Cy,delta_r)
-            Cldr=-0.03,                     # Rudder-roll coupling (Table 2: Cl,delta_r)
-            Cnda=-0.06,                     # Aileron adverse yaw (Table 2: Cn,delta_a)
-            Cndr=-0.092,                    # Rudder yaw effectiveness (Table 2: Cn,delta_r)
+            # Cessna 172 lateral set (per radian / per nondimensional rate).
+            # Do not paste the Udaan Dynamics-PDF Table 2 block here. That
+            # block (Cnp=-0.59, Clda=0.65, Clr=-0.35, ...) belongs on Udaan.
+            # On this airframe it makes the classical heading loop depart as
+            # soon as INITIAL_CLIMB uses aileron: the live SN65→KAAO re-fly
+            # peaked near 170 ft / 85 kt, then the heading ran away and the
+            # airplane settled back on the ground. Cnp is the dominant term
+            # (about 20× a trainer value). These numbers match the Cessna
+            # defaults the takeoff and climb laws were tuned against.
+            CYb=-0.393,
+            CYp=-0.075,
+            CYr=0.214,
+            CYda=0.0,
+            CYdr=0.187,
+            Clb=-0.0923,
+            Clp=-0.484,
+            Clr=0.0798,
+            Clda=0.229,
+            Cldr=0.0147,
+            Cnb=0.0587,
+            Cnp=-0.0278,
+            Cnr=-0.0937,
+            Cnda=-0.0216,
+            Cndr=-0.0645,
         ),
         
         prop=PropulsionParams(

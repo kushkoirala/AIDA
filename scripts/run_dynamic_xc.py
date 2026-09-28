@@ -260,9 +260,9 @@ def setup_flight(origin_icao, dest_icao):
         origin_alt_m=origin.elevation_ft * FT_TO_M
     )
 
-    # Dynamics from the aircraft database (telemetry model), not the inline
-    # AircraftParams defaults. Those two Cessna datasets disagree on lateral
-    # coefficients; the database is the source of truth.
+    # Dynamics from the aircraft database for the telemetry model.
+    # Unknown ids fall back to inline AircraftParams. cessna172's lateral
+    # set is the trainer model; the Udaan Table 2 block is not a Cessna.
     model_id = shared_state.get("model") or "cessna172"
     params, model_info = resolve_aircraft_params(model_id)
     shared_state["model"] = model_info["model"]
