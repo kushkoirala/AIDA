@@ -59,6 +59,22 @@ FT_TO_NM = 1 / 6076.12
 KTS_TO_FPS = 1.68781
 FPS_TO_KTS = 1 / 1.68781
 
+# Laminar Research Cessna 172 SP Skyhawk (180 HP), X-Plane 12
+# Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf
+# Rotate stays after the clean stall and below best-angle speed.
+# Climb targets best rate. Do not substitute speeds that are not in this list.
+C172_VSO_KTS = 40.0          # stall, landing configuration
+C172_VS_KTS = 48.0           # stall, clean
+C172_VX_KTS = 62.0           # best angle
+C172_VY_KTS = 74.0           # best rate
+C172_VBG_KTS = 68.0          # best glide
+C172_VFE1_KTS = 110.0        # first flap limit
+C172_VFEM_KTS = 85.0         # full-flap limit
+C172_VNO_KTS = 120.0         # max structural cruise
+C172_VNE_KTS = 163.0         # never exceed
+C172_STALL_WARN_AOA_DEG = 12.0
+C172_V_ROTATE_KTS = 54.0     # Vs < rotate < Vx
+
 # Turning point sits on the runway backcourse, behind the landing threshold.
 # A fixed 10 nm offset on a short leg (SN65→KAAO is ~21 nm) places that point
 # past the field, so distance-to-destination grows until TURN_TO_INTERCEPT.
@@ -286,12 +302,16 @@ class GeneralizedXCController:
         self.cruise_altitude_ft = cruise_altitude_ft
         self.pattern_altitude_ft = pattern_altitude_ft  # AGL, no elevation offset
 
-        # Speeds in ft/s (internal unit)
-        self.v_rotate = 54.0 * KTS_TO_FPS      # ~91 ft/s
-        self.v_climb = 74.0 * KTS_TO_FPS       # ~125 ft/s
-        self.v_cruise = 110.0 * KTS_TO_FPS     # ~185 ft/s
-        self.v_approach = 65.0 * KTS_TO_FPS    # ~110 ft/s
-        self.v_touchdown = 50.0 * KTS_TO_FPS   # ~84 ft/s
+        # Speeds in ft/s (internal unit). Rotate and climb come from the
+        # X-Plane 172 SP table above: liftoff after Vs, climb at Vy.
+        self.v_s = C172_VS_KTS * KTS_TO_FPS
+        self.v_x = C172_VX_KTS * KTS_TO_FPS
+        self.v_rotate = C172_V_ROTATE_KTS * KTS_TO_FPS
+        self.v_climb = C172_VY_KTS * KTS_TO_FPS
+        self.v_cruise = 110.0 * KTS_TO_FPS     # below Vno (120) and Vne (163)
+        self.v_approach = 65.0 * KTS_TO_FPS
+        self.v_touchdown = 50.0 * KTS_TO_FPS
+        self.stall_warn_aoa_deg = C172_STALL_WARN_AOA_DEG
 
         # Altitude parameters - all altitudes are AGL (simulator ground is Z=0)
         # No elevation offsets since simulator has no terrain model
@@ -360,6 +380,10 @@ class GeneralizedXCController:
         self.alt_integral_ft = 0.0
         self.alt_integral_max = 500.0  # Anti-windup clamp (ft·s)
 
+        # Climb-speed integral (kt·s) so a fixed deck angle cannot accelerate
+        # through Vy the way the old 8° pitch did (~100 kt).
+        self.vy_integral_kts = 0.0
+
         # Target pitch angles
         self.pitch_rotate = np.deg2rad(10.0)
         self.pitch_climb = np.deg2rad(8.0)
@@ -389,6 +413,8 @@ class GeneralizedXCController:
         print(f"  Runway:    {self.destination.runway_heading_deg:.0f}°")
         print(f"\nFlight Plan:")
         print(f"  Cruise Alt:    {self.cruise_altitude_ft:.0f} ft")
+        print(f"  Rotate:        {C172_V_ROTATE_KTS:.0f} kt (after Vs {C172_VS_KTS:.0f}, before Vx {C172_VX_KTS:.0f})")
+        print(f"  Climb:         Vy {C172_VY_KTS:.0f} kt")
         print(f"  Cruise Hdg:    {np.rad2deg(self.cruise_heading):.0f}°")
         print(f"  Turning Point: ({self.tp_x_ft/NM_TO_FT:.1f}nm, {self.tp_y_ft/NM_TO_FT:.1f}nm)")
         print(f"  TP Distance:   {self.tp_distance_nm:.1f} nm behind threshold")
@@ -401,6 +427,7 @@ class GeneralizedXCController:
         self.phase_start_time = 0.0
         self.has_turned_to_cruise = False
         self.alt_integral_ft = 0.0
+        self.vy_integral_kts = 0.0
         self.clear_overrides()
 
     def clear_overrides(self):
@@ -546,6 +573,32 @@ class GeneralizedXCController:
         roll_error = target_roll - roll
         return np.clip(self.kp_roll * roll_error - self.kd_roll * roll_rate, -1.0, 1.0)
 
+    def _vy_climb_command(self, airspeed_fps: float, base_pitch: float):
+        """Pitch and throttle that seek Vy (X-Plane 172 SP, 74 kt).
+
+        Below Vx the nose stays shallow (``base_pitch``, capped at 6°) and
+        power stays full so the airplane accelerates off the stall. Above
+        Vx the deck angle is the 10° rotation attitude, under the 12°
+        stall-warn AoA. Full throttle at that attitude trims near 88 kt
+        in this thrust model, so throttle — not a steeper pitch — holds
+        Vy. Climb rate is whatever excess thrust remains at that power
+        (about 400 fpm here), not the book 172 rate.
+        """
+        err_kts = (airspeed_fps - self.v_climb) * FPS_TO_KTS
+        self.vy_integral_kts += err_kts * 0.02
+        self.vy_integral_kts = float(np.clip(self.vy_integral_kts, -80.0, 80.0))
+
+        if airspeed_fps < self.v_x:
+            return min(base_pitch, np.deg2rad(6.0)), 1.0
+
+        pitch = float(np.deg2rad(min(10.0, self.stall_warn_aoa_deg)))
+        # Positive speed error (fast) reduces throttle. Integral holds the
+        # power setting that trims at Vy.
+        thr_corr = float(np.clip(
+            0.02 * err_kts + 0.008 * self.vy_integral_kts, -0.2, 0.65))
+        throttle = float(np.clip(1.0 - thr_corr, 0.40, 1.0))
+        return pitch, throttle
+
     def _pitch_control(self, target: float, current: float, pitch_rate: float) -> float:
         """Compute elevator input for pitch control."""
         error = target - current
@@ -657,6 +710,7 @@ class GeneralizedXCController:
             self.phase_start_time = sim_time
         elif self.phase == XCPhase.ROTATION and altitude_ft > self.initial_climb_alt_ft:
             self.phase = XCPhase.INITIAL_CLIMB
+            self.vy_integral_kts = 0.0
         elif self.phase == XCPhase.INITIAL_CLIMB and altitude_ft > self.turn_to_cruise_altitude_ft:
             self.phase = XCPhase.CLIMB
         elif self.phase == XCPhase.CLIMB and altitude_ft >= self.cruise_altitude_ft - 50:
@@ -705,11 +759,13 @@ class GeneralizedXCController:
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.INITIAL_CLIMB:
-            # Smooth blend from rotation pitch to climb pitch
+            # Accelerate through Vx, then hold Vy at the rotation attitude
+            # with a throttle trim. Pitch stays under the stall-warn AoA.
             alt_blend = min((altitude_ft - self.initial_climb_alt_ft) / 200.0, 1.0)
             alt_blend = max(alt_blend, 0.0)
-            pitch_target = self.pitch_rotate * (1 - alt_blend) + self.pitch_climb * alt_blend
-            return np.array([1.0,
+            base_pitch = self.pitch_rotate * (1 - alt_blend) + self.pitch_climb * alt_blend
+            pitch_target, throttle = self._vy_climb_command(airspeed_fps, base_pitch)
+            return np.array([throttle,
                            self._heading_control(self.departure_heading, psi, phi, p),
                            self._pitch_control(pitch_target, theta, q),
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
@@ -722,9 +778,10 @@ class GeneralizedXCController:
                 hdg = np.deg2rad(self.override_heading)
             else:
                 hdg = self.cruise_heading if self.has_turned_to_cruise else self.departure_heading
-            return np.array([1.0,
+            pitch_target, throttle = self._vy_climb_command(airspeed_fps, self.pitch_climb)
+            return np.array([throttle,
                            self._heading_control(hdg, psi, phi, p),
-                           self._pitch_control(self.pitch_climb, theta, q),
+                           self._pitch_control(pitch_target, theta, q),
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.CRUISE_TO_TP:

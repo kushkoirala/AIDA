@@ -14,7 +14,7 @@ Checks, without the telemetry server or the LLM path:
    The Cessna lateral set must be the trainer derivatives, not the Udaan
    Table 2 block (that paste departs in INITIAL_CLIMB).
 5. Database-backed Cessna takeoff on SN65 climbs out of INITIAL_CLIMB
-   into CLIMB without the ~170 ft / 85 kt energy collapse.
+   into CLIMB on Vy (X-Plane 74 kt), not the ~170 ft / 85 kt collapse.
 
 Re-run the live server the way PackScale does::
 
@@ -42,7 +42,8 @@ from flight_dynamics import (
     aircraft_params_from_config, resolve_aircraft_params,
 )
 from generalized_xc_controller import (
-    AirportConfig, GeneralizedXCController, KANSAS_AIRPORTS, NM_TO_FT,
+    AirportConfig, C172_VS_KTS, C172_VX_KTS, C172_VY_KTS, C172_V_ROTATE_KTS,
+    GeneralizedXCController, KANSAS_AIRPORTS, KTS_TO_FPS, NM_TO_FT,
     XCPhase, adaptive_turn_point_distance_nm, create_controller,
 )
 
@@ -341,6 +342,14 @@ def test_takeoff_reaches_climb():
     assert info["source"] == "aircraft_database"
     origin = KANSAS_AIRPORTS["SN65"]
     ctrl = create_controller("SN65", "KAAO", cruise_altitude_ft=5500.0)
+    _check(
+        "rotate is after Vs and before Vx; climb target is Vy",
+        C172_VS_KTS < C172_V_ROTATE_KTS < C172_VX_KTS
+        and abs(ctrl.v_rotate - C172_V_ROTATE_KTS * KTS_TO_FPS) < 1e-4
+        and abs(ctrl.v_climb - C172_VY_KTS * KTS_TO_FPS) < 1e-4,
+        f"Vr {C172_V_ROTATE_KTS:.0f} kt, Vs {C172_VS_KTS:.0f}, "
+        f"Vx {C172_VX_KTS:.0f}, Vy {C172_VY_KTS:.0f}",
+    )
     dt = 0.02
     sim = FlightSimulator(n_instances=1, params=params, dt=dt, use_gpu=False)
 
@@ -360,7 +369,8 @@ def test_takeoff_reaches_climb():
     saw_initial = False
     t = 0.0
     end_alt = end_spd = end_hdg = 0.0
-    for _ in range(int(90.0 / dt)):
+    # Vy climb is ~400 fpm in this thrust model, so 1500 ft is ~200 s.
+    for _ in range(int(240.0 / dt)):
         state = sim.get_states()[0]
         action = ctrl.compute_action(state.copy(), t)
         sim.set_controls(action.reshape(1, -1))
@@ -389,9 +399,9 @@ def test_takeoff_reaches_climb():
         f"(peak {peak_alt:.0f} ft / {peak_spd:.0f} kt)",
     )
     _check(
-        "climb holds energy and heading",
-        end_spd > 90.0 and max_bank < 45.0 and abs(hdg_err) < 25.0,
-        f"spd {end_spd:.1f} kt, max bank {max_bank:.1f}°, "
+        "climb holds Vy and heading",
+        abs(end_spd - C172_VY_KTS) <= 6.0 and max_bank < 45.0 and abs(hdg_err) < 25.0,
+        f"spd {end_spd:.1f} kt (Vy {C172_VY_KTS:.0f}), max bank {max_bank:.1f}°, "
         f"hdg {end_hdg:.1f}° (cruise {np.rad2deg(ctrl.cruise_heading):.1f}°, err {hdg_err:.1f}°)",
     )
 

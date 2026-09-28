@@ -121,8 +121,8 @@ class FlightEnvelopeCBF:
         self,
         min_altitude_ft: float = 200.0,
         max_altitude_ft: float = 14000.0,
-        min_airspeed_kts: float = 52.0,
-        max_airspeed_kts: float = 155.0,
+        min_airspeed_kts: float = 48.0,   # C172 Vs, clean (X-Plane 172 SP)
+        max_airspeed_kts: float = 163.0,  # C172 Vne
         max_bank_deg: float = 45.0,
         max_pitch_deg: float = 20.0,
         min_pitch_deg: float = -15.0,
