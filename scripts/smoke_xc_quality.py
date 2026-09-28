@@ -15,6 +15,9 @@ Checks, without the telemetry server or the LLM path:
    Table 2 block (that paste departs in INITIAL_CLIMB).
 5. Database-backed Cessna takeoff on SN65 climbs out of INITIAL_CLIMB
    into CLIMB on Vy (X-Plane 74 kt), not the ~170 ft / 85 kt collapse.
+6. Approach / short-final / flare targets come from the cessna172 V-speeds
+   (1.3 Vso class, not Vy). A short final flown at Vy pulls the power
+   off; a final started at Vy is below Vy by the flare.
 
 Re-run the live server the way PackScale does::
 
@@ -42,9 +45,11 @@ from flight_dynamics import (
     aircraft_params_from_config, resolve_aircraft_params,
 )
 from generalized_xc_controller import (
-    AirportConfig, C172_VS_KTS, C172_VX_KTS, C172_VY_KTS, C172_V_ROTATE_KTS,
-    GeneralizedXCController, KANSAS_AIRPORTS, KTS_TO_FPS, NM_TO_FT,
-    XCPhase, adaptive_turn_point_distance_nm, create_controller,
+    AirportConfig, C172_VS_KTS, C172_VSO_KTS, C172_VX_KTS, C172_VY_KTS,
+    C172_V_ROTATE_KTS, FPS_TO_KTS, GeneralizedXCController, KANSAS_AIRPORTS,
+    KTS_TO_FPS, NM_TO_FT, XCPhase, adaptive_turn_point_distance_nm,
+    approach_speed_schedule_for_model, approach_speed_schedule_kts,
+    create_controller,
 )
 
 M_TO_FT = 3.28084
@@ -406,11 +411,231 @@ def test_takeoff_reaches_climb():
     )
 
 
+def _state_on_glideslope(ctrl, dist_ft, airspeed_kts, alt_bias_ft=0.0):
+    """State on the destination extended centerline, on the  glideslope."""
+    hdg = float(ctrl.runway_heading)
+    x_ft = ctrl.aimpoint_x_ft - dist_ft * np.cos(hdg)
+    y_ft = ctrl.aimpoint_y_ft - dist_ft * np.sin(hdg)
+    alt_ft = dist_ft * np.tan(np.deg2rad(ctrl.glideslope_deg)) + alt_bias_ft
+    descent_fps = airspeed_kts * KTS_TO_FPS * np.tan(np.deg2rad(ctrl.glideslope_deg))
+    state = _make_state(max(alt_ft, 1.0), airspeed_kts,
+                        heading_deg=float(np.rad2deg(hdg)))
+    # Total airspeed is the requested value, not U plus an extra W.
+    u_fps = np.sqrt(max((airspeed_kts * KTS_TO_FPS) ** 2 - descent_fps ** 2, 1.0))
+    state[StateIndex.X] = x_ft * FT_TO_M
+    state[StateIndex.Y] = y_ft * FT_TO_M
+    state[StateIndex.U] = u_fps * FT_TO_M
+    state[StateIndex.W] = descent_fps * FT_TO_M
+    state[StateIndex.THETA] = ctrl.pitch_approach
+    return state, alt_ft
+
+
+def test_approach_speed_schedule():
+    """Cessna approach targets are 1.3 Vso class, and the law acts on them.
+
+    The previous final / short-final law used a fixed 0.35–0.45 throttle
+    and ignored airspeed, so the flare was entered at Vy (74 kt). On-speed
+    short final must still carry glide power — idle-all-the-way is not the
+    fix.
+    """
+    print("\nApproach speed schedule (not Vy)")
+    db = get_aircraft("cessna172")
+    _check(
+        "cessna172 pack publishes the Laminar V-speeds",
+        db.speeds is not None
+        and abs(db.speeds.vso_kts - C172_VSO_KTS) < 1e-6
+        and abs(db.speeds.vs_kts - C172_VS_KTS) < 1e-6
+        and abs(db.speeds.vx_kts - C172_VX_KTS) < 1e-6
+        and abs(db.speeds.vy_kts - C172_VY_KTS) < 1e-6,
+        f"Vso {db.speeds.vso_kts:.0f} Vs {db.speeds.vs_kts:.0f} "
+        f"Vx {db.speeds.vx_kts:.0f} Vy {db.speeds.vy_kts:.0f}",
+    )
+    sched = approach_speed_schedule_kts(
+        C172_VSO_KTS, C172_VS_KTS, C172_VY_KTS, C172_VX_KTS)
+    from_pack = approach_speed_schedule_for_model("cessna172")
+    missing = None
+    try:
+        approach_speed_schedule_for_model("f16")
+    except ValueError as exc:
+        missing = str(exc)
+    _check(
+        "a pack without V-speeds does not invent an approach target",
+        missing is not None and "ReferenceSpeeds" in missing,
+        f"f16: {missing}",
+    )
+    _check(
+        "schedule matches the cessna172 pack",
+        sched == from_pack,
+        str(sched),
+    )
+    _check(
+        "Vref is 1.3 Vso, short final is Vref+5, final is Vx",
+        abs(sched["vref_kts"] - 1.3 * C172_VSO_KTS) < 0.2
+        and abs(sched["short_final_kts"] - (sched["vref_kts"] + 5.0)) < 0.2
+        and abs(sched["final_kts"] - C172_VX_KTS) < 0.2
+        and sched["final_kts"] <= C172_VY_KTS - 8.0
+        and sched["vref_kts"] < sched["short_final_kts"] <= sched["final_kts"]
+        and sched["short_final_kts"] <= 60.0,
+        f"Vref {sched['vref_kts']:.1f} short {sched['short_final_kts']:.1f} "
+        f"final {sched['final_kts']:.1f} (Vy {C172_VY_KTS:.0f})",
+    )
+
+    ctrl = create_controller("SN65", "KAAO", cruise_altitude_ft=5500.0)
+    _check(
+        "controller climb stays Vy; approach targets are the schedule",
+        abs(ctrl.v_climb - C172_VY_KTS * KTS_TO_FPS) < 1e-4
+        and abs(ctrl.v_approach - sched["final_kts"] * KTS_TO_FPS) < 1e-3
+        and abs(ctrl.v_short_final - sched["short_final_kts"] * KTS_TO_FPS) < 1e-3
+        and abs(ctrl.v_ref - sched["vref_kts"] * KTS_TO_FPS) < 1e-3
+        and ctrl.v_short_final < ctrl.v_climb - 10.0 * KTS_TO_FPS,
+        f"climb {ctrl.v_climb * FPS_TO_KTS:.0f} kt, "
+        f"final {ctrl.v_approach * FPS_TO_KTS:.0f}, "
+        f"short {ctrl.v_short_final * FPS_TO_KTS:.0f}, "
+        f"Vref {ctrl.v_ref * FPS_TO_KTS:.0f}",
+    )
+
+    # On glideslope, ~0.3 nm: SHORT_FINAL, the old law held 0.35 throttle
+    # and zero spoiler at any speed.
+    fast_state, fast_alt = _state_on_glideslope(ctrl, 1800.0, C172_VY_KTS)
+    ctrl.phase = XCPhase.SHORT_FINAL
+    fast_action = ctrl.compute_action(fast_state, 0.0)
+    _check(
+        "short final at Vy pulls the power off",
+        float(fast_action[0]) <= 0.05 and fast_alt > 50.0,
+        f"throttle {float(fast_action[0]):.2f} spoiler {float(fast_action[5]):.2f} "
+        f"flaps {float(fast_action[4]):.2f} alt {fast_alt:.0f} ft "
+        f"(old law was throttle 0.35, spoiler 0)",
+    )
+
+    on_speed = create_controller("SN65", "KAAO", cruise_altitude_ft=5500.0)
+    ref_state, _ = _state_on_glideslope(on_speed, 1800.0, sched["short_final_kts"])
+    on_speed.phase = XCPhase.SHORT_FINAL
+    ref_action = on_speed.compute_action(ref_state, 0.0)
+    _check(
+        "on-speed short final keeps glide power and landing flaps",
+        0.20 <= float(ref_action[0]) <= 0.50
+        and float(ref_action[5]) <= 0.05
+        and float(ref_action[4]) >= 0.9,
+        f"throttle {float(ref_action[0]):.2f} spoiler {float(ref_action[5]):.2f} "
+        f"flaps {float(ref_action[4]):.2f}",
+    )
+
+    # Flare attitude. Old law commanded pitch_flare (5°) at any speed,
+    # so 74 kt and Vref produced the same nose-up elevator.
+    def _flare_at(speed_kts):
+        c = create_controller("SN65", "KAAO", cruise_altitude_ft=5500.0)
+        state, alt = _state_on_glideslope(c, 600.0, speed_kts, alt_bias_ft=0.0)
+        # Force the flare gate: 30 ft, still above the 3 ft touchdown gate.
+        state[StateIndex.Z] = -(30.0 * FT_TO_M)
+        state[StateIndex.W] = 0.0
+        c.phase = XCPhase.FLARE
+        action = c.compute_action(state, 0.0)
+        return action, alt
+
+    vy_flare, _ = _flare_at(C172_VY_KTS)
+    vref_flare, _ = _flare_at(sched["vref_kts"])
+    _check(
+        "flare at Vy does not hold the full nose-up attitude",
+        float(vy_flare[2]) > float(vref_flare[2]) + 0.05
+        and float(vref_flare[5]) <= 0.05
+        and float(vy_flare[0]) == 0.0
+        and float(vref_flare[0]) == 0.0,
+        f"Vy elevator {float(vy_flare[2]):.3f} spoiler {float(vy_flare[5]):.2f}; "
+        f"Vref elevator {float(vref_flare[2]):.3f} spoiler {float(vref_flare[5]):.2f} "
+        f"(internal +ve elevator = nose down)",
+    )
+
+
+def test_closed_loop_approach_energy():
+    """Final started at Vy must be off Vy before the flare.
+
+    Places the database Cessna on the KAAO glideslope at 2 nm and 74 kt
+    (the live flare-entry speed) and flies the approach law to 50 ft.
+    The old fixed-throttle law would still be near 74 kt there.
+    """
+    print("\nClosed-loop final approach energy (database Cessna)")
+    params, info = resolve_aircraft_params("cessna172")
+    assert info["source"] == "aircraft_database"
+    ctrl = create_controller("SN65", "KAAO", cruise_altitude_ft=5500.0)
+    sched = ctrl.approach_schedule_kts
+    dist0_ft = 2.0 * NM_TO_FT
+    state, alt0 = _state_on_glideslope(ctrl, dist0_ft, C172_VY_KTS)
+
+    dt = 0.02
+    sim = FlightSimulator(n_instances=1, params=params, dt=dt, use_gpu=False)
+    sim.reset(state.reshape(1, 12).astype(np.float32))
+    ctrl.phase = XCPhase.FINAL_APPROACH
+
+    flare_spd = flare_alt = None
+    min_spd = C172_VY_KTS
+    max_alt = alt0
+    t = 0.0
+    end_spd = C172_VY_KTS
+    touchdown_along_ft = None
+    for _ in range(int(180.0 / dt)):
+        st = sim.get_states()[0].copy()
+        alt = float(-st[StateIndex.Z] * M_TO_FT)
+        spd = float(np.linalg.norm(st[3:6]) * 1.94384)
+        end_spd = spd
+        max_alt = max(max_alt, alt)
+        x_ft = float(st[StateIndex.X] * M_TO_FT)
+        y_ft = float(st[StateIndex.Y] * M_TO_FT)
+        prev = ctrl.phase
+        action = ctrl.compute_action(st, t)
+        if flare_spd is None and t > 2.0:
+            min_spd = min(min_spd, spd)
+        if flare_spd is None and prev != XCPhase.FLARE and ctrl.phase == XCPhase.FLARE:
+            flare_spd = spd
+            flare_alt = alt
+        if ctrl.phase in (XCPhase.ROLLOUT, XCPhase.LANDING, XCPhase.LANDED):
+            hdg = float(ctrl.runway_heading)
+            touchdown_along_ft = (
+                (x_ft - ctrl.aimpoint_x_ft) * np.cos(hdg)
+                + (y_ft - ctrl.aimpoint_y_ft) * np.sin(hdg)
+            )
+            break
+        sim.set_controls(action.reshape(1, -1))
+        sim.step()
+        t += dt
+
+    _check(
+        "approach reaches the flare from 2 nm",
+        flare_spd is not None and 20.0 < flare_alt < 80.0,
+        f"phase {ctrl.phase.name} t={t:.1f}s spd {end_spd:.1f} kt "
+        f"flare_alt {flare_alt} max_alt {max_alt:.0f}",
+    )
+    _check(
+        "flare entry is well below Vy",
+        flare_spd <= sched["short_final_kts"] + 6.0
+        and flare_spd >= sched["vref_kts"] - 3.0
+        and flare_spd <= C172_VY_KTS - 10.0,
+        f"flare {flare_spd:.1f} kt at {flare_alt:.0f} ft "
+        f"(target short {sched['short_final_kts']:.0f}, Vref {sched['vref_kts']:.0f}; "
+        f"old entry was Vy {C172_VY_KTS:.0f})",
+    )
+    _check(
+        "approach did not fall through the stall",
+        min_spd >= C172_VSO_KTS + 4.0,
+        f"min speed after capture {min_spd:.1f} kt (Vso {C172_VSO_KTS:.0f})",
+    )
+    # Positive along-track is past the aimpoint, the direction of the
+    # old float (stop ~0.20 nm / 1200 ft long). This model has no ground
+    # effect; it should still not sail past the aiming point.
+    _check(
+        "touchdown is not long of the aiming point",
+        touchdown_along_ft is not None and touchdown_along_ft < 400.0,
+        f"along-track {touchdown_along_ft} ft "
+        f"(positive is past the aimpoint; old stop was ~1200 ft long)",
+    )
+
+
 def main():
     test_turn_point_scaling()
     test_turn_energy_hold_command()
     test_aircraft_database_wiring()
     test_start_flight_protocol()
+    test_approach_speed_schedule()
+    test_closed_loop_approach_energy()
     test_takeoff_reaches_climb()
     test_closed_loop_turn()
     print("\nAll XC quality smoke checks passed.")

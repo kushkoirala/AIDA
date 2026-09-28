@@ -49,6 +49,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / 'gpu-flight-dynamics' / 'python'))
+from aircraft_database import get_aircraft
 from flight_dynamics import StateIndex
 
 # Unit conversion constants
@@ -61,19 +62,32 @@ FPS_TO_KTS = 1 / 1.68781
 
 # Laminar Research Cessna 172 SP Skyhawk (180 HP), X-Plane 12
 # Aircraft/Laminar Research/Cessna 172 SP/Cessna_172SP.acf
-# Rotate stays after the clean stall and below best-angle speed.
-# Climb targets best rate. Do not substitute speeds that are not in this list.
-C172_VSO_KTS = 40.0          # stall, landing configuration
-C172_VS_KTS = 48.0           # stall, clean
-C172_VX_KTS = 62.0           # best angle
-C172_VY_KTS = 74.0           # best rate
-C172_VBG_KTS = 68.0          # best glide
-C172_VFE1_KTS = 110.0        # first flap limit
-C172_VFEM_KTS = 85.0         # full-flap limit
-C172_VNO_KTS = 120.0         # max structural cruise
-C172_VNE_KTS = 163.0         # never exceed
+# The numbers live on the cessna172 pack (ReferenceSpeeds) so another
+# airframe can carry its own table. These aliases keep the climb law and
+# the CBF Vs/Vne floors on that same table.
+_C172_SPEEDS = get_aircraft("cessna172").speeds
+if _C172_SPEEDS is None:
+    raise RuntimeError("cessna172 aircraft pack is missing ReferenceSpeeds")
+C172_VSO_KTS = float(_C172_SPEEDS.vso_kts)     # stall, landing configuration
+C172_VS_KTS = float(_C172_SPEEDS.vs_kts)       # stall, clean
+C172_VX_KTS = float(_C172_SPEEDS.vx_kts)       # best angle
+C172_VY_KTS = float(_C172_SPEEDS.vy_kts)       # best rate
+C172_VBG_KTS = float(_C172_SPEEDS.vbg_kts)     # best glide
+C172_VFE1_KTS = float(_C172_SPEEDS.vfe_first_kts)  # first flap limit
+C172_VFEM_KTS = float(_C172_SPEEDS.vfe_full_kts)   # full-flap limit
+C172_VNO_KTS = float(_C172_SPEEDS.vno_kts)     # max structural cruise
+C172_VNE_KTS = float(_C172_SPEEDS.vne_kts)     # never exceed
 C172_STALL_WARN_AOA_DEG = 12.0
-C172_V_ROTATE_KTS = 54.0     # Vs < rotate < Vx
+C172_V_ROTATE_KTS = 54.0     # Vs < rotate < Vx (procedure, not a book V-speed)
+
+# Light-airplane approach references. Not Vy.
+# Vref = 1.3 Vso (threshold / flare). Short final is a few knots faster.
+# Final approach is 1.3 Vs, capped at Vx when that cap stays above short
+# final, and always at least 8 kt under Vy.
+VREF_OVER_VSO = 1.3
+FINAL_OVER_VS = 1.3
+SHORT_FINAL_ADD_KTS = 5.0
+APPROACH_VY_MARGIN_KTS = 8.0
 
 # Turning point sits on the runway backcourse, behind the landing threshold.
 # A fixed 10 nm offset on a short leg (SN65→KAAO is ~21 nm) places that point
@@ -104,6 +118,72 @@ def adaptive_turn_point_distance_nm(direct_distance_nm: float,
     if not np.isfinite(requested) or requested < 0.0:
         return float(adaptive)
     return float(min(requested, adaptive))
+
+
+def approach_speed_schedule_kts(vso_kts: float, vs_kts: float, vy_kts: float,
+                                vx_kts: Optional[float] = None) -> dict:
+    """Approach / short-final / flare speeds from published stall speeds.
+
+    A normal light-airplane short final is about 1.3 Vso, not best-rate
+    climb. For the Laminar 172 SP that is the mid-50s, with final approach
+    in the low-60s:
+
+    - ``vref_kts`` = 1.3 Vso. Threshold and flare-entry reference (52 kt).
+    - ``short_final_kts`` = Vref + 5. A few knots to bleed in the flare (57).
+    - ``final_kts`` = 1.3 Vs, capped at Vx when that cap is still above
+      short final (62 kt on this airplane, which is also Vx).
+    - ``touchdown_kts`` = 1.2 Vso. The idle flare is allowed to decay
+      toward this; power does not chase it.
+
+    Every controlled target is at least ``APPROACH_VY_MARGIN_KTS`` below
+    Vy. Passing Vy in as the approach target is the bug this replaces
+    (flare entry at 74 kt and a ~1000 ft float).
+    """
+    vso = float(vso_kts)
+    vs = float(vs_kts)
+    vy = float(vy_kts)
+    if not (vso > 0.0 and vs > 0.0 and vy > vso):
+        raise ValueError(
+            f"approach schedule needs Vso < Vy and positive stalls, "
+            f"got Vso={vso}, Vs={vs}, Vy={vy}")
+
+    vref = VREF_OVER_VSO * vso
+    short = vref + SHORT_FINAL_ADD_KTS
+    final = FINAL_OVER_VS * vs
+    if vx_kts is not None and float(vx_kts) > short:
+        final = min(final, float(vx_kts))
+
+    cap = vy - APPROACH_VY_MARGIN_KTS
+    final = min(final, cap)
+    if short > cap:
+        short = cap
+        vref = min(vref, short)
+    if final < short:
+        final = short
+
+    touchdown = min(vref, max(1.2 * vso, vso + 8.0))
+    return {
+        "vref_kts": round(float(vref), 1),
+        "short_final_kts": round(float(short), 1),
+        "final_kts": round(float(final), 1),
+        "touchdown_kts": round(float(touchdown), 1),
+    }
+
+
+def approach_speed_schedule_for_model(model: str = "cessna172") -> dict:
+    """Schedule for an aircraft pack that publishes ReferenceSpeeds.
+
+    Packs without Vso/Vs/Vy raise. The formula is shared; the numbers
+    come from that airframe's table.
+    """
+    config = get_aircraft(model)
+    speeds = getattr(config, "speeds", None)
+    if speeds is None:
+        raise ValueError(
+            f"{model} has no ReferenceSpeeds; add Vso/Vs/Vx/Vy before "
+            f"deriving an approach schedule")
+    return approach_speed_schedule_kts(
+        speeds.vso_kts, speeds.vs_kts, speeds.vy_kts, speeds.vx_kts)
 
 
 class XCPhase(Enum):
@@ -303,14 +383,20 @@ class GeneralizedXCController:
         self.pattern_altitude_ft = pattern_altitude_ft  # AGL, no elevation offset
 
         # Speeds in ft/s (internal unit). Rotate and climb come from the
-        # X-Plane 172 SP table above: liftoff after Vs, climb at Vy.
+        # X-Plane 172 SP table: liftoff after Vs, climb at Vy. Approach
+        # speeds are the 1.3 Vso / 1.3 Vs schedule, not Vy. The old fixed
+        # 65 kt field was never closed in the approach law, so short final
+        # trimmed near Vy (74 kt) and floated about 1000 ft.
         self.v_s = C172_VS_KTS * KTS_TO_FPS
         self.v_x = C172_VX_KTS * KTS_TO_FPS
         self.v_rotate = C172_V_ROTATE_KTS * KTS_TO_FPS
         self.v_climb = C172_VY_KTS * KTS_TO_FPS
         self.v_cruise = 110.0 * KTS_TO_FPS     # below Vno (120) and Vne (163)
-        self.v_approach = 65.0 * KTS_TO_FPS
-        self.v_touchdown = 50.0 * KTS_TO_FPS
+        self.approach_schedule_kts = approach_speed_schedule_for_model("cessna172")
+        self.v_approach = self.approach_schedule_kts["final_kts"] * KTS_TO_FPS
+        self.v_short_final = self.approach_schedule_kts["short_final_kts"] * KTS_TO_FPS
+        self.v_ref = self.approach_schedule_kts["vref_kts"] * KTS_TO_FPS
+        self.v_touchdown = self.approach_schedule_kts["touchdown_kts"] * KTS_TO_FPS
         self.stall_warn_aoa_deg = C172_STALL_WARN_AOA_DEG
 
         # Altitude parameters - all altitudes are AGL (simulator ground is Z=0)
@@ -383,6 +469,12 @@ class GeneralizedXCController:
         # Climb-speed integral (kt·s) so a fixed deck angle cannot accelerate
         # through Vy the way the old 8° pitch did (~100 kt).
         self.vy_integral_kts = 0.0
+        # Leaky approach-speed integral (kt). Trims glide power without
+        # remembering a long decel from cruise all the way to the flare.
+        self.approach_integral_kts = 0.0
+        # Attitude integral (rad·s) so flap moment does not leave the nose
+        # short of the glideslope pitch target.
+        self.approach_pitch_integral = 0.0
 
         # Target pitch angles
         self.pitch_rotate = np.deg2rad(10.0)
@@ -413,8 +505,12 @@ class GeneralizedXCController:
         print(f"  Runway:    {self.destination.runway_heading_deg:.0f}°")
         print(f"\nFlight Plan:")
         print(f"  Cruise Alt:    {self.cruise_altitude_ft:.0f} ft")
+        sched = self.approach_schedule_kts
         print(f"  Rotate:        {C172_V_ROTATE_KTS:.0f} kt (after Vs {C172_VS_KTS:.0f}, before Vx {C172_VX_KTS:.0f})")
         print(f"  Climb:         Vy {C172_VY_KTS:.0f} kt")
+        print(f"  Approach:      final {sched['final_kts']:.0f} kt "
+              f"(1.3 Vs, cap Vx), short {sched['short_final_kts']:.0f} kt "
+              f"(1.3 Vso+5), Vref {sched['vref_kts']:.0f} kt")
         print(f"  Cruise Hdg:    {np.rad2deg(self.cruise_heading):.0f}°")
         print(f"  Turning Point: ({self.tp_x_ft/NM_TO_FT:.1f}nm, {self.tp_y_ft/NM_TO_FT:.1f}nm)")
         print(f"  TP Distance:   {self.tp_distance_nm:.1f} nm behind threshold")
@@ -428,6 +524,8 @@ class GeneralizedXCController:
         self.has_turned_to_cruise = False
         self.alt_integral_ft = 0.0
         self.vy_integral_kts = 0.0
+        self.approach_integral_kts = 0.0
+        self.approach_pitch_integral = 0.0
         self.clear_overrides()
 
     def clear_overrides(self):
@@ -516,6 +614,7 @@ class GeneralizedXCController:
             "override_active": self.override_active,
             "override_heading": self.override_heading,
             "override_altitude": self.override_altitude,
+            "approach_schedule_kts": dict(self.approach_schedule_kts),
         }
 
     def get_target_altitude_ft(self) -> float:
@@ -647,6 +746,141 @@ class GeneralizedXCController:
             return float(self.override_altitude)
         return float(self.cruise_altitude_ft)
 
+    def _approach_target_fps(self, dist_to_threshold_ft: float) -> float:
+        """Final-approach speed, blending to the short-final target inside 2.5 nm.
+
+        Outside 2.5 nm the target is 1.3 Vs (low-60s, capped at Vx). By
+        1 nm it is Vref+5 (mid-50s). The flare law then uses Vref for the
+        attitude, not this throttle target.
+        """
+        if self.phase == XCPhase.FLARE:
+            return self.v_ref
+        outer_ft = 2.5 * NM_TO_FT
+        inner_ft = 1.0 * NM_TO_FT
+        dist = float(dist_to_threshold_ft)
+        if dist >= outer_ft:
+            return self.v_approach
+        if dist <= inner_ft or self.phase in (XCPhase.SHORT_FINAL, XCPhase.FLARE):
+            return self.v_short_final
+        frac = (outer_ft - dist) / (outer_ft - inner_ft)
+        return self.v_approach + frac * (self.v_short_final - self.v_approach)
+
+    def _approach_power(self, airspeed_fps: float, target_fps: float,
+                        path_throttle: float, path_spoiler: float,
+                        alt_error_ft: float):
+        """Throttle and spoiler that seek an approach speed.
+
+        Pitch stays on the glideslope. The previous approach law used a
+        fixed 0.35–0.45 throttle and ignored airspeed, which trimmed near
+        Vy. Fast: power comes off. On speed: a partial glide power
+        setting. Below Vref: power comes up, including when the glideslope
+        still wants a descent, so the bleed cannot continue through the
+        stall. Spoilers are only a small high-and-fast correction; this
+        model's spoiler increment dumps lift and will fly through the path
+        if it is used as the speed brake.
+
+        Returns ``(throttle, spoiler)``.
+        """
+        err_kts = (airspeed_fps - target_fps) * FPS_TO_KTS
+        # Leaky integrator, tau ~ 7 s. A long decel from cruise does not
+        # leave the throttle stuck at idle after the speed is captured.
+        self.approach_integral_kts += 0.02 * (err_kts - 0.15 * self.approach_integral_kts)
+        self.approach_integral_kts = float(np.clip(self.approach_integral_kts, -20.0, 25.0))
+
+        base = 0.32
+        # Low path adds a little power; high path takes a little off.
+        # Continuous, so it does not bang against the speed loop at a
+        # single altitude threshold.
+        path_trim = float(np.clip(-alt_error_ft / 350.0, -0.22, 0.22))
+        thr_cmd = base + path_trim - 0.05 * err_kts - 0.012 * self.approach_integral_kts
+        thr_cmd = float(np.clip(thr_cmd, 0.0, 0.80))
+        # Spoilers in this model cut lift hard (dCL about -0.4 at full).
+        # A large deflection on an already-steep path drops the nose through
+        # the glideslope and the speed never comes off. Use a little spoiler
+        # only while high and fast, so the extra drag steepens a high
+        # approach. On or below the path, throttle is the speed control.
+        if alt_error_ft > 80.0 and err_kts > 3.0:
+            spl_cmd = float(np.clip((err_kts - 3.0) / 25.0, 0.0, 0.30))
+            spl_cmd = min(spl_cmd, float(alt_error_ft) / 500.0)
+        else:
+            spl_cmd = 0.0
+
+        speed_kts = airspeed_fps * FPS_TO_KTS
+        vref_kts = self.v_ref * FPS_TO_KTS
+        if speed_kts < vref_kts - 1.0:
+            return max(thr_cmd, 0.65), 0.0
+
+        if alt_error_ft > 200.0:
+            # High on the path: keep the descent power, and still add drag
+            # when the airplane is fast. Do not add power to chase the
+            # speed target until the glideslope is recaptured.
+            if err_kts > 1.0:
+                throttle = min(float(path_throttle), thr_cmd)
+                spoiler = max(float(path_spoiler), spl_cmd)
+            else:
+                throttle = float(path_throttle)
+                spoiler = float(path_spoiler)
+            return float(np.clip(throttle, 0.0, 0.80)), float(np.clip(spoiler, 0.0, 1.0))
+
+        throttle = thr_cmd
+        spoiler = max(0.0, spl_cmd)
+        return throttle, float(np.clip(spoiler, 0.0, 1.0))
+
+    def _approach_flaps(self, speed_kts: float) -> float:
+        """Flap schedule that respects Vfe and is in landing config before the flare.
+
+        Full flaps used to come on at the flare (50 ft). That is a lift
+        increment at the moment the airplane should be touching down, and
+        Vso only applies in landing configuration. Landing flaps now come
+        on at short final, once below the full-flap limit.
+        """
+        if speed_kts > C172_VFE1_KTS:
+            return 0.0
+        if speed_kts > C172_VFEM_KTS:
+            return 0.35
+        # Landing flaps on short final, not at the flare. Extending them
+        # at 50 ft is a lift increment in the float. Earlier than short
+        # final the pitch loop is still capturing the path, so stay at
+        # approach flaps until the full-flap limit allows the last segment.
+        if self.phase in (XCPhase.SHORT_FINAL, XCPhase.FLARE):
+            return 1.0
+        return 0.5
+
+    def _glideslope_pitch(self, altitude_ft: float, dist_ft: float,
+                          climb_rate_fps: float, airspeed_fps: float) -> float:
+        """Nose attitude that tracks the approach glideslope.
+
+        Negative pitch is nose down. The previous inner term added nose-up
+        when the airplane was not descending enough (``pitch_adjust`` had
+        the wrong sign for this model), so a throttle cut fell through the
+        path and the old fixed 0.45 throttle ballooned above it. Throttle
+        is not decided here.
+        """
+        target_alt = max(float(dist_ft), 0.0) * np.tan(np.deg2rad(self.glideslope_deg))
+        alt_error = float(altitude_ft) - target_alt  # positive = high
+        gs_fps = -abs(float(airspeed_fps)) * np.tan(np.deg2rad(self.glideslope_deg))
+        target_vs = gs_fps - 0.10 * alt_error
+        target_vs = float(np.clip(target_vs, -1800.0 / 60.0, 400.0 / 60.0))
+        # Positive: not descending enough (or climbing) relative to the path.
+        vs_error = float(climb_rate_fps) - target_vs
+        pitch = self.pitch_approach - 0.018 * vs_error
+        pitch -= np.deg2rad(float(np.clip(0.02 * alt_error, -6.0, 5.0)))
+        return float(np.clip(pitch, np.deg2rad(-12.0), np.deg2rad(10.0)))
+
+    def _approach_elevator(self, pitch: float, theta: float, pitch_rate: float) -> float:
+        """Stiffer attitude loop for the approach and the flare.
+
+        ``_pitch_control`` uses a gain of 1 per radian, so a 6° miss is
+        only ~0.1 elevator and will not recapture the glideslope or raise
+        the flare. Climb and cruise keep the original gain.
+        """
+        error = float(pitch) - float(theta)
+        self.approach_pitch_integral += error * 0.02
+        self.approach_pitch_integral = float(np.clip(self.approach_pitch_integral, -0.35, 0.35))
+        cmd = 4.5 * error + 3.0 * self.approach_pitch_integral - 1.2 * float(pitch_rate)
+        # Negative elevator is nose up, matching ``_pitch_control``.
+        return float(-np.clip(cmd, -0.8, 0.7))
+
     def compute_action(self, state: np.ndarray, sim_time: float) -> np.ndarray:
         """
         Compute control action from current state.
@@ -675,9 +909,10 @@ class GeneralizedXCController:
         p = state[StateIndex.P]
         q = state[StateIndex.Q]
 
-        # Body-axis climb proxy used by the approach/flare laws (unchanged).
+        # Body-axis climb proxy. The flare sink-arrest term still uses it.
         climb_rate_body_fps = -w_fps
-        # Inertial climb rate, positive up, for cruise and the intercept turn.
+        # Inertial climb rate, positive up, for cruise, the intercept turn,
+        # and the final glideslope.
         # Body-axis -w matches this only wings-level near zero pitch. In a
         # bank, -w looks like a descent (the extra alpha that holds altitude)
         # and the energy hold then pumps the elevator.
@@ -727,6 +962,8 @@ class GeneralizedXCController:
                 self.phase = XCPhase.INTERCEPT_LEG
         elif self.phase == XCPhase.INTERCEPT_LEG and dist_to_threshold_ft <= 3 * NM_TO_FT:
             self.phase = XCPhase.FINAL_APPROACH
+            self.approach_integral_kts = 0.0
+            self.approach_pitch_integral = 0.0
         elif self.phase == XCPhase.FINAL_APPROACH and dist_to_threshold_ft <= self.short_final_distance_ft:
             self.phase = XCPhase.SHORT_FINAL
         elif self.phase == XCPhase.SHORT_FINAL and altitude_ft <= self.flare_altitude_ft:
@@ -872,6 +1109,12 @@ class GeneralizedXCController:
                 throttle = 0.5
                 spoiler = 0.0
                 pitch_base = self.pitch_descent
+                # On the path, start the approach-speed bleed so final is
+                # not entered at cruise or Vy. High branches above keep
+                # their own descent power.
+                target_fps = self._approach_target_fps(dist_to_threshold_ft)
+                throttle, spoiler = self._approach_power(
+                    airspeed_fps, target_fps, throttle, spoiler, alt_error_ft)
 
             target_descent_fps = np.clip(target_descent_fps, -3000/60, 0)
             pitch_adjust = (climb_rate_body_fps - target_descent_fps) * 0.003
@@ -893,75 +1136,73 @@ class GeneralizedXCController:
             intercept_angle = np.clip(-cross_track_ft * 0.001, -np.deg2rad(15), np.deg2rad(15))
             target_heading = self.runway_heading + intercept_angle
 
-            # Glideslope target altitude (AGL, ground is Z=0)
+            # Pitch tracks the glideslope. Power tracks the approach speed.
             target_alt_ft = dist_to_aimpoint_ft * np.tan(np.deg2rad(self.glideslope_deg))
             alt_error_ft = altitude_ft - target_alt_ft
-
-            if alt_error_ft > 500:
-                target_descent_fps = -2000 / 60
-                throttle = 0.3
-                spoiler = 0.5
-                pitch_base = np.deg2rad(-5.0)
-            elif alt_error_ft > 200:
-                target_descent_fps = -1000 / 60
-                throttle = 0.4
-                spoiler = 0.3
-                pitch_base = np.deg2rad(-3.0)
+            pitch = self._glideslope_pitch(
+                altitude_ft, dist_to_aimpoint_ft, climb_rate_fps, airspeed_fps)
+            if alt_error_ft > 300.0:
+                path_throttle, path_spoiler = 0.15, 0.25
+            elif alt_error_ft > 150.0:
+                path_throttle, path_spoiler = 0.25, 0.10
             else:
-                gs_descent_fps = -airspeed_fps * np.tan(np.deg2rad(self.glideslope_deg))
-                target_descent_fps = gs_descent_fps - 0.1 * alt_error_ft
-                throttle = 0.45
-                spoiler = 0.0
-                pitch_base = self.pitch_approach
+                path_throttle, path_spoiler = 0.40, 0.0
 
-            target_descent_fps = np.clip(target_descent_fps, -2000/60, 0)
-            pitch_adjust = (climb_rate_body_fps - target_descent_fps) * 0.003
-            pitch = pitch_base + pitch_adjust
+            target_fps = self._approach_target_fps(dist_to_threshold_ft)
+            throttle, spoiler = self._approach_power(
+                airspeed_fps, target_fps, path_throttle, path_spoiler, alt_error_ft)
+            flaps = self._approach_flaps(airspeed_fps * FPS_TO_KTS)
 
             return np.array([throttle,
                            self._heading_control(target_heading, psi, phi, p),
-                           self._pitch_control(pitch, theta, q),
-                           0.0, 0.5, spoiler, 0.0], dtype=np.float32)
+                           self._approach_elevator(pitch, theta, q),
+                           0.0, flaps, spoiler, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.SHORT_FINAL:
-            # Glideslope target altitude (AGL, ground is Z=0)
             target_alt_ft = dist_to_aimpoint_ft * np.tan(np.deg2rad(self.glideslope_deg))
             alt_error_ft = altitude_ft - target_alt_ft
-
-            if alt_error_ft > 300:
-                target_descent_fps = -1500 / 60
-                throttle = 0.2
-                spoiler = 0.4
-                pitch_base = np.deg2rad(-4.0)
-            elif alt_error_ft > 100:
-                target_descent_fps = -800 / 60
-                throttle = 0.3
-                spoiler = 0.2
-                pitch_base = np.deg2rad(-2.0)
+            pitch = self._glideslope_pitch(
+                altitude_ft, dist_to_aimpoint_ft, climb_rate_fps, airspeed_fps)
+            if alt_error_ft > 150.0:
+                path_throttle, path_spoiler = 0.15, 0.15
             else:
-                gs_descent_fps = -airspeed_fps * np.tan(np.deg2rad(self.glideslope_deg))
-                target_descent_fps = gs_descent_fps - 0.1 * alt_error_ft
-                throttle = 0.35
-                spoiler = 0.0
-                pitch_base = self.pitch_approach
+                path_throttle, path_spoiler = 0.35, 0.0
 
-            target_descent_fps = np.clip(target_descent_fps, -1500/60, 0)
-            pitch_adjust = (climb_rate_body_fps - target_descent_fps) * 0.003
-            pitch = pitch_base + pitch_adjust
+            target_fps = self._approach_target_fps(dist_to_threshold_ft)
+            throttle, spoiler = self._approach_power(
+                airspeed_fps, target_fps, path_throttle, path_spoiler, alt_error_ft)
+            flaps = self._approach_flaps(airspeed_fps * FPS_TO_KTS)
 
             return np.array([throttle,
                            self._heading_control(self.runway_heading, psi, phi, p),
-                           self._pitch_control(pitch, theta, q),
-                           0.0, 0.7, spoiler, 0.0], dtype=np.float32)
+                           self._approach_elevator(pitch, theta, q),
+                           0.0, flaps, spoiler, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.FLARE:
-            # Flare: pitch up, idle throttle, arrest descent rate
+            # Idle, landing flaps. Attitude depends on the speed that
+            # actually showed up: at Vref use the flare pitch; if the
+            # airplane is still fast (the old 74 kt entry), hold the
+            # approach attitude and a little spoiler so the extra knots
+            # bleed instead of floating.
+            speed_kts = airspeed_fps * FPS_TO_KTS
+            vref_kts = self.v_ref * FPS_TO_KTS
+            short_kts = self.v_short_final * FPS_TO_KTS
+            fast_span = max(short_kts + 8.0 - vref_kts, 1.0)
+            fast = float(np.clip((speed_kts - vref_kts) / fast_span, 0.0, 1.0))
+            pitch_base = (1.0 - fast) * self.pitch_flare + fast * self.pitch_approach
             pitch_adjust = -climb_rate_body_fps * 0.005
-            pitch = self.pitch_flare + pitch_adjust
+            if fast > 0.5:
+                pitch_adjust = min(float(pitch_adjust), 0.0)
+            pitch = pitch_base + pitch_adjust
+            # A touch of spoiler only while still fast. Full spoilers at
+            # 50 ft dump the wing; the flatter attitude is what shortens
+            # the float.
+            spoiler = float(np.clip((speed_kts - (vref_kts + 8.0)) / 40.0, 0.0, 0.15))
+            flaps = self._approach_flaps(speed_kts)
             return np.array([0.0,
                            self._heading_control(self.runway_heading, psi, phi, p),
-                           self._pitch_control(pitch, theta, q),
-                           0.0, 1.0, 0.0, 0.0], dtype=np.float32)
+                           self._approach_elevator(pitch, theta, q),
+                           0.0, flaps, spoiler, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.ROLLOUT:
             # Rollout: on the ground, braking, maintain runway heading
