@@ -59,6 +59,36 @@ FT_TO_NM = 1 / 6076.12
 KTS_TO_FPS = 1.68781
 FPS_TO_KTS = 1 / 1.68781
 
+# Turning point sits on the runway backcourse, behind the landing threshold.
+# A fixed 10 nm offset on a short leg (SN65→KAAO is ~21 nm) places that point
+# past the field, so distance-to-destination grows until TURN_TO_INTERCEPT.
+# Scale with the direct route: clip(0.4 × direct_nm, 3 nm, 10 nm).
+TP_DISTANCE_MAX_NM = 10.0
+TP_DISTANCE_MIN_NM = 3.0
+TP_DISTANCE_FRACTION = 0.4
+
+
+def adaptive_turn_point_distance_nm(direct_distance_nm: float,
+                                    requested_nm: Optional[float] = None) -> float:
+    """Route-scaled distance from the threshold back to the turning point.
+
+    ``adaptive = clip(0.4 * direct_nm, 3 nm, 10 nm)``.
+
+    When ``requested_nm`` is omitted, that adaptive distance is used. An
+    explicit request is kept when it is shorter, and is reduced to the cap
+    when it would fly past a short leg (the old default of 10 nm on
+    SN65→KAAO).
+    """
+    direct = max(float(direct_distance_nm), 0.0)
+    adaptive = TP_DISTANCE_FRACTION * direct
+    adaptive = min(TP_DISTANCE_MAX_NM, max(TP_DISTANCE_MIN_NM, adaptive))
+    if requested_nm is None:
+        return float(adaptive)
+    requested = float(requested_nm)
+    if not np.isfinite(requested) or requested < 0.0:
+        return float(adaptive)
+    return float(min(requested, adaptive))
+
 
 class XCPhase(Enum):
     """Flight phases for cross-country flight."""
@@ -234,7 +264,7 @@ class GeneralizedXCController:
                  destination: AirportConfig,
                  cruise_altitude_ft: float = 5500.0,
                  pattern_altitude_ft: float = 1500.0,
-                 tp_distance_nm: float = 10.0):
+                 tp_distance_nm: Optional[float] = None):
         """
         Initialize the controller.
 
@@ -243,7 +273,11 @@ class GeneralizedXCController:
             destination: Destination airport configuration
             cruise_altitude_ft: Cruise altitude in feet MSL
             pattern_altitude_ft: Traffic pattern altitude AGL
-            tp_distance_nm: Distance of turning point from destination (nm)
+            tp_distance_nm: Optional turning-point distance from the
+                destination threshold (nm). Omit it to scale with the
+                direct route (see ``adaptive_turn_point_distance_nm``).
+                A request longer than that scaled distance is capped so a
+                stale 10 nm value cannot fly past a short leg.
         """
         self.origin = origin
         self.destination = destination
@@ -285,8 +319,14 @@ class GeneralizedXCController:
         self.aimpoint_x_ft = self.threshold_x_ft
         self.aimpoint_y_ft = self.threshold_y_ft
 
-        # Turning point: specified distance behind threshold on backcourse
-        tp_distance_ft = tp_distance_nm * NM_TO_FT
+        # Direct route length, then a turning point behind the threshold on
+        # the backcourse. Short legs must not inherit a fixed 10 nm offset.
+        direct_ft = float(np.hypot(self.dest_x_ft - origin.x_ft,
+                                   self.dest_y_ft - origin.y_ft))
+        self.direct_distance_nm = direct_ft * FT_TO_NM
+        self.tp_distance_nm = adaptive_turn_point_distance_nm(
+            self.direct_distance_nm, tp_distance_nm)
+        tp_distance_ft = self.tp_distance_nm * NM_TO_FT
         self.tp_x_ft = self.threshold_x_ft + tp_distance_ft * np.cos(self.backcourse)
         self.tp_y_ft = self.threshold_y_ft + tp_distance_ft * np.sin(self.backcourse)
 
@@ -351,10 +391,8 @@ class GeneralizedXCController:
         print(f"  Cruise Alt:    {self.cruise_altitude_ft:.0f} ft")
         print(f"  Cruise Hdg:    {np.rad2deg(self.cruise_heading):.0f}°")
         print(f"  Turning Point: ({self.tp_x_ft/NM_TO_FT:.1f}nm, {self.tp_y_ft/NM_TO_FT:.1f}nm)")
-
-        # Calculate direct distance
-        direct_dist_ft = np.sqrt(self.dest_x_ft**2 + self.dest_y_ft**2)
-        print(f"  Direct Dist:   {direct_dist_ft/NM_TO_FT:.1f} nm")
+        print(f"  TP Distance:   {self.tp_distance_nm:.1f} nm behind threshold")
+        print(f"  Direct Dist:   {self.direct_distance_nm:.1f} nm")
         print(f"{'='*60}\n")
 
     def reset(self):
@@ -446,6 +484,8 @@ class GeneralizedXCController:
             "origin": self.origin.icao,
             "destination": self.destination.icao,
             "cruise_altitude_ft": self.cruise_altitude_ft,
+            "direct_distance_nm": self.direct_distance_nm,
+            "tp_distance_nm": self.tp_distance_nm,
             "override_active": self.override_active,
             "override_heading": self.override_heading,
             "override_altitude": self.override_altitude,
@@ -462,7 +502,8 @@ class GeneralizedXCController:
         if self.override_active and self.override_altitude is not None:
             return self.override_altitude
 
-        if self.phase in (XCPhase.CLIMB, XCPhase.CRUISE_TO_TP):
+        if self.phase in (XCPhase.CLIMB, XCPhase.CRUISE_TO_TP,
+                          XCPhase.TURN_TO_INTERCEPT):
             return self.cruise_altitude_ft
         elif self.phase in (XCPhase.INTERCEPT_LEG, XCPhase.FINAL_APPROACH):
             # Glideslope - would need current position to calculate
@@ -481,7 +522,9 @@ class GeneralizedXCController:
 
         if self.phase in (XCPhase.GROUND_ROLL, XCPhase.ROTATION, XCPhase.INITIAL_CLIMB):
             return self.origin.runway_heading_deg
-        elif self.phase in (XCPhase.INTERCEPT_LEG, XCPhase.FINAL_APPROACH, XCPhase.FLARE, XCPhase.ROLLOUT):
+        elif self.phase in (XCPhase.TURN_TO_INTERCEPT, XCPhase.INTERCEPT_LEG,
+                            XCPhase.FINAL_APPROACH, XCPhase.SHORT_FINAL,
+                            XCPhase.FLARE, XCPhase.ROLLOUT, XCPhase.LANDING):
             return np.rad2deg(self.runway_heading) % 360
         else:
             # Cruise - heading to destination
@@ -508,6 +551,49 @@ class GeneralizedXCController:
         error = target - current
         return -np.clip(self.kp_pitch * error - self.kd_pitch * pitch_rate, -1.0, 1.0)
 
+    def _cruise_energy_hold(self, altitude_ft: float, climb_rate_fps: float,
+                            target_altitude_ft: float,
+                            airspeed_fps: Optional[float] = None,
+                            trim_airspeed: bool = False):
+        """PI altitude hold: vertical-speed pitch plus throttle trim.
+
+        This is the cruise law. ``TURN_TO_INTERCEPT`` uses it too, with
+        ``trim_airspeed`` set, so a banked procedure turn does not lock
+        pitch at the cruise attitude and a fixed 0.7 throttle (that
+        combination ballooned ~370 ft and ran 120 kt up to ~135 kt).
+
+        Returns ``(pitch_target_rad, throttle)``.
+        """
+        alt_error_ft = altitude_ft - target_altitude_ft
+
+        # Accumulate integral (anti-windup). dt matches the XC server step.
+        self.alt_integral_ft += alt_error_ft * 0.02
+        self.alt_integral_ft = np.clip(self.alt_integral_ft,
+                                       -self.alt_integral_max, self.alt_integral_max)
+
+        target_vs_fps = -0.08 * alt_error_ft - 0.005 * self.alt_integral_ft
+        target_vs_fps = np.clip(target_vs_fps, -800 / 60, 800 / 60)
+        vs_error_fps = climb_rate_fps - target_vs_fps
+
+        pitch_correction = np.deg2rad(-0.6 * vs_error_fps)
+        pitch_correction = np.clip(pitch_correction, np.deg2rad(-10.0), np.deg2rad(10.0))
+        pitch_target = self.pitch_cruise + pitch_correction
+
+        base_throttle = 0.50
+        throttle = base_throttle - 0.002 * alt_error_ft
+        if trim_airspeed and airspeed_fps is not None:
+            # Bleed excess kinetic energy. Cruise leaves this off so an
+            # already-trimmed cruise leg is unchanged.
+            throttle += -0.004 * (airspeed_fps - self.v_cruise)
+        throttle = float(np.clip(throttle, 0.3, 0.7))
+        return pitch_target, throttle
+
+    def _resolve_cruise_altitude_ft(self) -> float:
+        """Cruise target, or an active altitude override when one is set."""
+        if self.override_active and self.override_altitude:
+            return float(self.override_altitude)
+        return float(self.cruise_altitude_ft)
+
     def compute_action(self, state: np.ndarray, sim_time: float) -> np.ndarray:
         """
         Compute control action from current state.
@@ -529,13 +615,25 @@ class GeneralizedXCController:
         v_fps = state[StateIndex.V] * M_TO_FT
         w_fps = state[StateIndex.W] * M_TO_FT
         airspeed_fps = np.sqrt(u_fps**2 + v_fps**2 + w_fps**2)
-        climb_rate_fps = -w_fps  # positive = climbing
 
         phi = state[StateIndex.PHI]
         theta = state[StateIndex.THETA]
         psi = state[StateIndex.PSI]
         p = state[StateIndex.P]
         q = state[StateIndex.Q]
+
+        # Body-axis climb proxy used by the approach/flare laws (unchanged).
+        climb_rate_body_fps = -w_fps
+        # Inertial climb rate, positive up, for cruise and the intercept turn.
+        # Body-axis -w matches this only wings-level near zero pitch. In a
+        # bank, -w looks like a descent (the extra alpha that holds altitude)
+        # and the energy hold then pumps the elevator.
+        sin_theta = np.sin(theta)
+        cos_theta = np.cos(theta)
+        z_dot_fps = (-sin_theta * u_fps
+                     + np.sin(phi) * cos_theta * v_fps
+                     + np.cos(phi) * cos_theta * w_fps)
+        climb_rate_fps = -z_dot_fps
 
         # Recalculate approach if flagged (after diversion + land command)
         # Never recalculate once in terminal phases (on the ground)
@@ -636,32 +734,8 @@ class GeneralizedXCController:
             else:
                 bearing = np.arctan2(self.tp_y_ft - y_ft, self.tp_x_ft - x_ft)
 
-            target_altitude_ft = (self.override_altitude
-                                  if (self.override_active and self.override_altitude)
-                                  else self.cruise_altitude_ft)
-            alt_error_ft = altitude_ft - target_altitude_ft
-
-            # PI altitude hold: proportional + integral to eliminate steady-state offset
-            # Accumulate integral (with anti-windup clamp)
-            self.alt_integral_ft += alt_error_ft * 0.02  # dt ≈ 0.02s
-            self.alt_integral_ft = np.clip(self.alt_integral_ft,
-                                           -self.alt_integral_max, self.alt_integral_max)
-
-            # Target vertical speed: P + I
-            target_vs_fps = -0.08 * alt_error_ft - 0.005 * self.alt_integral_ft
-            target_vs_fps = np.clip(target_vs_fps, -800/60, 800/60)  # ±800 fpm max
-
-            vs_error_fps = climb_rate_fps - target_vs_fps
-
-            # Pitch control to achieve target vertical speed
-            pitch_correction = np.deg2rad(-0.6 * vs_error_fps)
-            pitch_correction = np.clip(pitch_correction, np.deg2rad(-10.0), np.deg2rad(10.0))
-            pitch_target = self.pitch_cruise + pitch_correction
-
-            # Throttle: reduce when above target, increase when below
-            base_throttle = 0.50
-            throttle_correction = -0.002 * alt_error_ft  # Stronger throttle response
-            throttle = np.clip(base_throttle + throttle_correction, 0.3, 0.7)
+            pitch_target, throttle = self._cruise_energy_hold(
+                altitude_ft, climb_rate_fps, self._resolve_cruise_altitude_ft())
 
             return np.array([throttle,
                            self._heading_control(bearing, psi, phi, p),
@@ -669,14 +743,26 @@ class GeneralizedXCController:
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.TURN_TO_INTERCEPT:
-            # Respect heading override even during intercept turn
+            # Respect heading override even during intercept turn.
+            # Vertical channel is the cruise energy hold (not a frozen
+            # cruise pitch / 0.7 throttle) so altitude and airspeed stay
+            # near the cruise targets through the bank.
             if self.override_active and self.override_heading is not None:
                 hdg = np.deg2rad(self.override_heading)
             else:
                 hdg = self.runway_heading
-            return np.array([0.7,
+            pitch_target, throttle = self._cruise_energy_hold(
+                altitude_ft, climb_rate_fps, self._resolve_cruise_altitude_ft(),
+                airspeed_fps=airspeed_fps, trim_airspeed=True)
+            # Replace the vertical component of lift lost to bank. The VS
+            # loop trims the residual. ~2° at 30° of bank, 0° wings-level.
+            cos_phi = float(np.cos(np.clip(phi, -np.deg2rad(50.0), np.deg2rad(50.0))))
+            cos_phi = max(abs(cos_phi), 0.55)
+            pitch_target = pitch_target + np.deg2rad(12.0 * (1.0 / cos_phi - 1.0))
+            pitch_target = float(np.clip(pitch_target, np.deg2rad(-12.0), np.deg2rad(12.0)))
+            return np.array([throttle,
                            self._heading_control(hdg, psi, phi, p),
-                           self._pitch_control(self.pitch_cruise, theta, q),
+                           self._pitch_control(pitch_target, theta, q),
                            0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
         elif self.phase == XCPhase.INTERCEPT_LEG:
@@ -731,7 +817,7 @@ class GeneralizedXCController:
                 pitch_base = self.pitch_descent
 
             target_descent_fps = np.clip(target_descent_fps, -3000/60, 0)
-            pitch_adjust = (climb_rate_fps - target_descent_fps) * 0.003
+            pitch_adjust = (climb_rate_body_fps - target_descent_fps) * 0.003
             pitch = pitch_base + pitch_adjust
 
             return np.array([throttle,
@@ -772,7 +858,7 @@ class GeneralizedXCController:
                 pitch_base = self.pitch_approach
 
             target_descent_fps = np.clip(target_descent_fps, -2000/60, 0)
-            pitch_adjust = (climb_rate_fps - target_descent_fps) * 0.003
+            pitch_adjust = (climb_rate_body_fps - target_descent_fps) * 0.003
             pitch = pitch_base + pitch_adjust
 
             return np.array([throttle,
@@ -803,7 +889,7 @@ class GeneralizedXCController:
                 pitch_base = self.pitch_approach
 
             target_descent_fps = np.clip(target_descent_fps, -1500/60, 0)
-            pitch_adjust = (climb_rate_fps - target_descent_fps) * 0.003
+            pitch_adjust = (climb_rate_body_fps - target_descent_fps) * 0.003
             pitch = pitch_base + pitch_adjust
 
             return np.array([throttle,
@@ -813,7 +899,7 @@ class GeneralizedXCController:
 
         elif self.phase == XCPhase.FLARE:
             # Flare: pitch up, idle throttle, arrest descent rate
-            pitch_adjust = -climb_rate_fps * 0.005
+            pitch_adjust = -climb_rate_body_fps * 0.005
             pitch = self.pitch_flare + pitch_adjust
             return np.array([0.0,
                            self._heading_control(self.runway_heading, psi, phi, p),
@@ -840,7 +926,8 @@ class GeneralizedXCController:
 
 def create_controller(origin_icao: str, destination_icao: str,
                       cruise_altitude_ft: float = 5500.0,
-                      custom_airports: dict = None) -> GeneralizedXCController:
+                      custom_airports: dict = None,
+                      tp_distance_nm: Optional[float] = None) -> GeneralizedXCController:
     """
     Factory function to create a controller for a given airport pair.
 
@@ -849,6 +936,8 @@ def create_controller(origin_icao: str, destination_icao: str,
         destination_icao: Destination airport ICAO code
         cruise_altitude_ft: Cruise altitude in feet
         custom_airports: Optional dict of additional AirportConfig objects
+        tp_distance_nm: Optional turn-point distance (nm). Omit to scale
+            with the direct route.
 
     Returns:
         Configured GeneralizedXCController
@@ -866,7 +955,8 @@ def create_controller(origin_icao: str, destination_icao: str,
     return GeneralizedXCController(
         origin=airports[origin_icao],
         destination=airports[destination_icao],
-        cruise_altitude_ft=cruise_altitude_ft
+        cruise_altitude_ft=cruise_altitude_ft,
+        tp_distance_nm=tp_distance_nm,
     )
 
 
