@@ -97,6 +97,26 @@ class PropulsionParams:
     tau: float = 0.5        # Engine time constant [s]
 
 
+@dataclass
+class ReferenceSpeeds:
+    """Published V-speeds in knots.
+
+    The classical approach schedule reads ``vso_kts``, ``vs_kts``,
+    ``vx_kts``, and ``vy_kts``. Packs without this table do not get a
+    derived approach target. These are the book / ACF speeds, not a stall
+    speed inverted from ``CLmax`` (flaps are not in that coefficient).
+    """
+    vso_kts: float          # Stall, landing configuration
+    vs_kts: float           # Stall, clean
+    vx_kts: float           # Best angle
+    vy_kts: float           # Best rate
+    vbg_kts: float = 0.0    # Best glide
+    vfe_first_kts: float = 0.0  # First flap-notch limit
+    vfe_full_kts: float = 0.0   # Full-flap limit
+    vno_kts: float = 0.0    # Max structural cruise
+    vne_kts: float = 0.0    # Never exceed
+
+
 @dataclass 
 class AircraftConfig:
     """Complete aircraft configuration"""
@@ -111,6 +131,7 @@ class AircraftConfig:
     # Optional metadata
     source: str = ""
     notes: str = ""
+    speeds: ReferenceSpeeds = None
 
 
 # =============================================================================
@@ -191,8 +212,23 @@ def get_cessna_172() -> AircraftConfig:
             thrust_min=50.0,
             tau=0.5,
         ),
+
+        # Laminar Research Cessna 172 SP (180 HP), X-Plane 12 ACF.
+        # Climb uses Vy. The approach schedule uses Vso / Vs / Vx and
+        # must not substitute Vy.
+        speeds=ReferenceSpeeds(
+            vso_kts=40.0,
+            vs_kts=48.0,
+            vx_kts=62.0,
+            vy_kts=74.0,
+            vbg_kts=68.0,
+            vfe_first_kts=110.0,
+            vfe_full_kts=85.0,
+            vno_kts=120.0,
+            vne_kts=163.0,
+        ),
         
-        source="Various GA references, Stevens & Lewis",
+        source="Various GA references, Stevens & Lewis; V-speeds from Laminar 172 SP ACF",
         notes="Stable trainer aircraft. Good for learning flight dynamics.",
     )
 
@@ -622,6 +658,12 @@ def print_aircraft_info(config: AircraftConfig):
     print(f"    Iyy:   {config.mass.Iyy:,.0f} kg·m²")
     print(f"    Izz:   {config.mass.Izz:,.0f} kg·m²")
     
+    if config.speeds is not None:
+        sp = config.speeds
+        print(f"\n  Reference Speeds (kt):")
+        print(f"    Vso {sp.vso_kts:.0f}  Vs {sp.vs_kts:.0f}  "
+              f"Vx {sp.vx_kts:.0f}  Vy {sp.vy_kts:.0f}  Vne {sp.vne_kts:.0f}")
+
     print(f"\n  Geometry:")
     print(f"    Wing Area:  {config.geom.S:.2f} m² ({config.geom.S * 10.764:.0f} ft²)")
     print(f"    Wingspan:   {config.geom.b:.2f} m ({config.geom.b * 3.281:.1f} ft)")
