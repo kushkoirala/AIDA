@@ -172,6 +172,118 @@ class AircraftParams:
     prop: PropulsionParams = field(default_factory=PropulsionParams)
 
 
+def aircraft_params_from_config(config) -> AircraftParams:
+    """Build simulator parameters from an ``aircraft_database`` config.
+
+    The inline ``AircraftParams()`` defaults are a different Cessna dataset
+    than ``get_aircraft("cessna172")`` — lateral coefficients (Clb, Clda, …)
+    do not match. Callers that know a model id must pass the database config
+    through here so there is one source of truth.
+
+    Flap and spoiler increments are not in the database; those stay at the
+    simulator defaults.
+    """
+    return AircraftParams(
+        mass=MassProperties(
+            mass=config.mass.mass,
+            Ixx=config.mass.Ixx,
+            Iyy=config.mass.Iyy,
+            Izz=config.mass.Izz,
+            Ixz=config.mass.Ixz,
+        ),
+        geom=Geometry(
+            S=config.geom.S,
+            b=config.geom.b,
+            c=config.geom.c,
+            e=config.geom.e,
+        ),
+        longi=LongitudinalDerivatives(
+            CL0=config.longi.CL0,
+            CLa=config.longi.CLa,
+            CLq=config.longi.CLq,
+            CLde=config.longi.CLde,
+            CLmax=config.longi.CLmax,
+            CLmin=config.longi.CLmin,
+            CD0=config.longi.CD0,
+            K=config.longi.K,
+            CDa=config.longi.CDa,
+            Cm0=config.longi.Cm0,
+            Cma=config.longi.Cma,
+            Cmq=config.longi.Cmq,
+            Cmde=config.longi.Cmde,
+        ),
+        latdi=LateralDerivatives(
+            CYb=config.latdi.CYb,
+            CYp=config.latdi.CYp,
+            CYr=config.latdi.CYr,
+            CYda=config.latdi.CYda,
+            CYdr=config.latdi.CYdr,
+            Clb=config.latdi.Clb,
+            Clp=config.latdi.Clp,
+            Clr=config.latdi.Clr,
+            Clda=config.latdi.Clda,
+            Cldr=config.latdi.Cldr,
+            Cnb=config.latdi.Cnb,
+            Cnp=config.latdi.Cnp,
+            Cnr=config.latdi.Cnr,
+            Cnda=config.latdi.Cnda,
+            Cndr=config.latdi.Cndr,
+        ),
+        prop=PropulsionParams(
+            thrust_max=config.prop.thrust_max,
+            thrust_min=config.prop.thrust_min,
+            tau=config.prop.tau,
+        ),
+    )
+
+
+def resolve_aircraft_params(model: Optional[str]):
+    """Load FlightSimulator parameters for a model id.
+
+    ``cessna172`` (and any future airframe registered in
+    ``aircraft_database``) comes from ``get_aircraft``. An unknown or blank
+    id falls back to inline ``AircraftParams`` defaults so a bad model
+    string cannot take down the flight server.
+
+    Returns ``(params, info)`` where ``info["source"]`` is
+    ``"aircraft_database"`` or ``"AircraftParams_defaults"``.
+    """
+    from aircraft_database import get_aircraft
+
+    model_id = str(model or "cessna172").strip() or "cessna172"
+    try:
+        config = get_aircraft(model_id)
+    except KeyError as exc:
+        print(f"[AIDA] Unknown aircraft '{model_id}' ({exc}). "
+              f"Using AircraftParams defaults.")
+        return AircraftParams(), {
+            "model": model_id,
+            "source": "AircraftParams_defaults",
+        }
+    params = aircraft_params_from_config(config)
+    print(f"[AIDA] Dynamics '{model_id}' from aircraft database "
+          f"({config.name}, mass={params.mass.mass:.0f} kg, "
+          f"Clb={params.latdi.Clb:.3f}, Clda={params.latdi.Clda:.3f})")
+    return params, {
+        "model": model_id,
+        "source": "aircraft_database",
+        "name": config.name,
+    }
+
+
+def aircraft_model_from_command(cmd, current: str = "cessna172") -> str:
+    """Model id from a start_flight command, else the current model.
+
+    ``aircraft`` (hangar / PackScale) and ``model`` are both accepted.
+    Commands that omit the field, including overrides, leave ``current``.
+    """
+    if isinstance(cmd, dict):
+        aircraft = cmd.get("aircraft") or cmd.get("model")
+        if aircraft:
+            return str(aircraft).strip() or current
+    return current
+
+
 class FlightSimulator:
     """
     GPU-accelerated 6-DOF flight dynamics simulator.
@@ -210,6 +322,10 @@ class FlightSimulator:
         
         # Simulation time
         self.time = 0.0
+
+        # Felt load factor |F_aero + thrust| / weight. Updated in step()/reset().
+        # 1.0 until the first derivative evaluation so telemetry is finite.
+        self.load_factor = self.xp.ones(n_instances, dtype=np.float32)
         
         # Set default trim state
         self._init_trim()
@@ -261,6 +377,7 @@ class FlightSimulator:
         else:
             self.controls[:] = 0.0
             self.controls[:, ControlIndex.THROTTLE] = 0.4
+        self._update_load_factor()
     
     def set_controls(self, controls: Union[np.ndarray, 'cp.ndarray', 'torch.Tensor']):
         """
@@ -304,6 +421,49 @@ class FlightSimulator:
             self._step_rk4()
         
         self.time += self.dt
+        self._update_load_factor()
+
+    def _update_load_factor(self):
+        """Cache felt load factor from non-gravitational specific force.
+
+        The equations of motion mix aerodynamic/thrust acceleration with
+        gravity and the rotating-frame term. Removing those leaves the
+        accelerometer reading. Level unaccelerated flight is about 1 g;
+        a coordinated 30° bank is about 1.15 g. This is what telemetry
+        should report instead of a constant 1.0.
+        """
+        xp = self.xp
+        g = 9.80665
+        deriv = self._compute_derivatives(self.states)
+
+        u = self.states[:, StateIndex.U]
+        v = self.states[:, StateIndex.V]
+        w = self.states[:, StateIndex.W]
+        phi = self.states[:, StateIndex.PHI]
+        theta = self.states[:, StateIndex.THETA]
+        p = self.states[:, StateIndex.P]
+        q = self.states[:, StateIndex.Q]
+        r = self.states[:, StateIndex.R]
+
+        u_dot = deriv[:, StateIndex.U]
+        v_dot = deriv[:, StateIndex.V]
+        w_dot = deriv[:, StateIndex.W]
+
+        gx = -g * xp.sin(theta)
+        gy = g * xp.cos(theta) * xp.sin(phi)
+        gz = g * xp.cos(theta) * xp.cos(phi)
+
+        # u_dot = Fx/m - q*w + r*v + gx  (same for v_dot, w_dot)
+        ax = u_dot + q * w - r * v - gx
+        ay = v_dot + r * u - p * w - gy
+        az = w_dot + p * v - q * u - gz
+        self.load_factor = xp.sqrt(ax * ax + ay * ay + az * az) / g
+
+    def get_load_factor(self) -> np.ndarray:
+        """Felt load factor for each instance, as a NumPy array."""
+        if self.use_gpu:
+            return cp.asnumpy(self.load_factor)
+        return np.asarray(self.load_factor, dtype=np.float64)
     
     def step_n(self, n_steps: int):
         """Advance simulation by multiple time steps."""

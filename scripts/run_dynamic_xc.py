@@ -31,7 +31,9 @@ from generalized_xc_controller import (
     GeneralizedXCController, XCPhase, AirportConfig,
     KANSAS_AIRPORTS, create_controller
 )
-from flight_dynamics import FlightSimulator, StateIndex
+from flight_dynamics import (
+    FlightSimulator, StateIndex, aircraft_model_from_command, resolve_aircraft_params,
+)
 from aida_sim.io.telemetry import telemetry_server, get_command
 from earth_model import EarthModel, curvature_altitude_correction, M_TO_NM
 
@@ -104,6 +106,16 @@ flight_state = {
     "new_origin_config": None,
     "new_dest_config": None,
 }
+
+
+def note_start_flight_aircraft(cmd: dict) -> None:
+    """Honor an optional aircraft/model field on start_flight.
+
+    Missing field keeps the current telemetry model (default cessna172).
+    The command shape is otherwise unchanged.
+    """
+    shared_state["model"] = aircraft_model_from_command(
+        cmd, shared_state.get("model") or "cessna172")
 
 
 def euler_to_quaternion(roll, pitch, yaw):
@@ -248,8 +260,14 @@ def setup_flight(origin_icao, dest_icao):
         origin_alt_m=origin.elevation_ft * FT_TO_M
     )
 
-    # Initialize flight dynamics
-    dynamics = FlightSimulator(n_instances=1, dt=0.02, use_gpu=False)
+    # Dynamics from the aircraft database (telemetry model), not the inline
+    # AircraftParams defaults. Those two Cessna datasets disagree on lateral
+    # coefficients; the database is the source of truth.
+    model_id = shared_state.get("model") or "cessna172"
+    params, model_info = resolve_aircraft_params(model_id)
+    shared_state["model"] = model_info["model"]
+    shared_state["dynamics_source"] = model_info["source"]
+    dynamics = FlightSimulator(n_instances=1, dt=0.02, use_gpu=False, params=params)
 
     # Initial position at origin airport runway centerline
     # Key insight: The viewer's runway visual is centered at the airport reference point
@@ -389,6 +407,7 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
                             origin_icao = cmd.get('origin')
                             dest_icao = cmd.get('destination')
                             if origin_icao and dest_icao:
+                                note_start_flight_aircraft(cmd)
                                 print(f"[HANGAR] New flight selected: {origin_icao} -> {dest_icao}")
                                 break
                     time.sleep(0.1)
@@ -420,6 +439,10 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
         print(f"Arrival:   {destination.name} ({destination.icao}) RWY {int(destination.runway_heading_deg/10):02d}")
         print(f"Distance:  {distance_nm:.1f} NM | Course: {course_deg:.0f}° true")
         print(f"Cruise:    {CRUISE_ALTITUDE_FT:.0f} ft MSL")
+        print(f"Turn point:{controller.tp_distance_nm:.1f} NM behind threshold "
+              f"(direct {controller.direct_distance_nm:.1f} NM)")
+        print(f"Dynamics:  {shared_state.get('model')} "
+              f"via {shared_state.get('dynamics_source')}")
         print("="*70)
 
         flight_state["running"] = True
@@ -469,6 +492,7 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
                         new_dest = cmd.get('destination')
 
                         if new_origin and new_dest:
+                            note_start_flight_aircraft(cmd)
                             flight_state["new_origin"] = new_origin
                             flight_state["new_destination"] = new_dest
                             flight_state["restart_requested"] = True
@@ -566,6 +590,7 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
 
                 # Show the actual applied controls (CBF-filtered if active)
                 update_telemetry(state, applied_action, controller.phase.name, distance_to_dest, origin, earth)
+                shared_state["load_factor"] = float(dynamics.get_load_factor()[0])
                 shared_state["sim_time"] = sim_time
 
                 # IMM update: feed current telemetry every frame
@@ -643,6 +668,7 @@ def run_flight_loop(dt=0.02, sim_speed=2.0):
                                     new_origin = cmd.get('origin')
                                     new_dest = cmd.get('destination')
                                     if new_origin and new_dest:
+                                        note_start_flight_aircraft(cmd)
                                         flight_state["new_origin"] = new_origin
                                         flight_state["new_destination"] = new_dest
                                         flight_state["restart_requested"] = True
